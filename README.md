@@ -1,41 +1,118 @@
-# Architecture & Implementation Concept: Low-Latency ESP32 Multicast Babyphone (SRTP/Opus)
+# Architecture & Implementation Plan: Low-Latency ESP32-S3 Multicast Babyphone (SRTP/Opus)
 
 ## 1. Executive Summary & Core Concept
-This document serves as the architectural foundation and implementation blueprint for an ultra-low-latency, resilient, headless Babyphone system.
-Instead of relying on heavy application-layer stacks (e.g., WebRTC, SIP, or cloud gateways), this system operates purely on **L2/L3 UDP Multicast (IGMP) with SRTP (Static Pre-Shared Key / SDES) and Opus audio encoding**.
+This document specifies the technical architecture, pinouts, display UX design, and implementation roadmap for an ultra-low-latency, resilient baby monitor built around the **M5Stack M5StickS3** development kit.
 
-### Key Architectural Tenets:
-* **Stateless & Headless Sender:** The ESP32 boots, establishes Wi-Fi, and immediately broadcasts audio packets to a multicast group. No handshake, no signaling server, zero incoming connection handling.
-* **Zero Cloud / Local-Only:** High privacy, zero internet dependency.
-* **Low Latency & High Performance:** Target latency is **< 80 ms** on LAN.
-* **Multi-Client Support:** Any number of clients (VLC on PC, custom Android/Flutter app) can independently join (`IGMP JOIN`) or leave (`IGMP LEAVE`) the stream without altering sender state.
+The system bypasses heavy application-layer protocols (WebRTC, SIP, Cloud WebSockets) in favor of **L2/L3 UDP Multicast (IGMP) with SRTP (Static Pre-Shared Key / SDES) and Opus audio encoding**.
+
+### Key System Characteristics:
+* **Dedicated Hardware Platform:** M5Stack M5StickS3 (ESP32-S3, ES8311 low-noise audio codec + high-SNR MEMS mic, 8MB PSRAM, integrated enclosure, internal battery backup).
+* **Stateless Broadcast Sender:** On boot, the device connects to Wi-Fi, initializes the ES8311 codec via I2C, starts I2S DMA capture, encodes to Opus, and streams SRTP packets to multicast group `239.255.0.1:5004`.
+* **Zero Cloud Dependency:** 100% local network execution for maximum privacy and resilience against WAN outages.
+* **Target Latency:** **< 80 ms** end-to-end on local Wi-Fi.
+* **Multi-Client Architecture:** Any number of clients (Desktop VLC, custom Flutter Android/iOS app, or secondary ESP32 hardware receiver like M5Stack ATOM Echo) can join or leave via IGMP without sender overhead.
+* **Integrated Glanceable UI:** 1.14″ LCD provides instant network status, battery level, live audio VU-meter, and nursery night-mode auto-dimming.
 
 ---
 
-## 2. System Architecture & Data Flow
+## 2. Hardware Specification: M5Stack M5StickS3
+
+| Parameter | Specification | Project Role / Significance |
+| :--- | :--- | :--- |
+| **SoC** | ESP32-S3-PICO-1-N8R8 | Dual-Core Xtensa LX7 @ 240 MHz with Vector Instructions |
+| **Memory** | 8 MB Octal PSRAM + 8 MB Flash | High headroom for Opus encoding buffers & ringbuffers |
+| **Audio Codec** | Everest ES8311 | Low-power 24-bit audio ADC/DAC, I2C register config |
+| **Microphone** | High-SNR MEMS Mic (onboard) | Direct acoustic port on enclosure; hardware gain (PGA) tunable via ES8311 |
+| **Speaker / Amp** | AW8737 Amp + 1W Cavity Speaker | Enables optional reverse-intercom / talkback in future |
+| **Display** | 1.14″ TFT LCD (ST7789v2, 240×135) | Standalone visual status (Wi-Fi, IP, VU-meter, streaming state) |
+| **Power / Battery** | 250 mAh LiPo + USB-C | Prevents drops during socket shifts; native USB-JTAG/CDC flashing |
+| **Dimensions** | 48 × 24 × 15 mm (20g) | Finished injection-molded enclosure with magnetic base |
+
+---
+
+## 3. Hardware Pinout & Bus Mapping (M5StickS3 Internal)
+
+The M5StickS3 routes its peripherals to the following internal ESP32-S3 GPIOs:
+
+### A. I2C Bus (ES8311 Audio Codec Control & AXP Power)
+* **`I2C_SDA`:** `GPIO 47`
+* **`I2C_SCL`:** `GPIO 48`
+* **ES8311 I2C Address:** `0x18` (7-bit)
+
+### B. I2S Audio Interface (ES8311 Codec Data)
+* **`I2S_MCLK`:** `GPIO 18` (Master Clock to Codec)
+* **`I2S_BCLK`:** `GPIO 17` (Bit Clock)
+* **`I2S_LRCK`:** `GPIO 15` (Word Select / Left-Right Clock)
+* **`I2S_SDIN`:** `GPIO 16` (Microphone ADC Data into ESP32)
+* **`I2S_SDOUT`:** `GPIO 14` (Speaker DAC Data out of ESP32)
+
+### C. Display (ST7789 SPI) & Controls
+* **`TFT_MOSI`:** `GPIO 21` | **`TFT_CLK`:** `GPIO 36` | **`TFT_DC`:** `GPIO 37` | **`TFT_RST`:** `GPIO 38` | **`TFT_CS`:** `GPIO 39`
+* **`TFT_BL` (Backlight):** `GPIO 40` (PWM dimming support)
+* **`BTN_A` (Main Front Button):** `GPIO 35` (Wake display / Toggle status screen)
+* **Native USB-CDC/JTAG:** `GPIO 19 (D-)` / `GPIO 20 (D+)` (Flashing & serial monitoring)
+
+---
+
+## 4. Display UI & UX Specification (1.14″ ST7789 LCD)
+
+### 4.1 Screen Layout
+The display operates in landscape orientation ($240 	imes 135	ext{ px}$) or vertical orientation, divided into 4 clear diagnostic zones:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ [● REC] SRTP: ON      WiFi: -58dBm   BAT: 100% (USB)   │  <-- Header: Stream Status & Power
+├────────────────────────────────────────────────────────┤
+│ MULTICAST: 239.255.0.1:5004                            │  <-- Join Target Info
+│ LOCAL IP : 192.168.1.142                               │
+├────────────────────────────────────────────────────────┤
+│ AUDIO LEVEL (VU):                                      │
+│ [████████████████░░░░░░░░░░░░░░░░] -18 dB              │  <-- Dynamic Bar: Green / Yellow / Red
+├────────────────────────────────────────────────────────┤
+│ CODEC: OPUS 24kbps Mono (16kHz)     UPTIME: 02h:14m    │  <-- Stream Specs & Uptime
+└────────────────────────────────────────────────────────┘
+```
+
+### 4.2 UI Elements & Color Coding
+* **Stream & Security Indicator:** Green dot `[● REC]` when audio is actively captured and streamed; Lock icon `[🔒 SRTP]` indicating AES-128 encryption.
+* **Network & Multicast Info:** Explicitly displays the target IGMP group `239.255.0.1:5004` so any device in the house can be configured instantly without checking documentation.
+* **Dynamic Audio VU-Meter:**
+  * `< -30 dB` (Green): Normal nursery background noise / silence.
+  * `-30 dB to -15 dB` (Yellow): Baby stirring, breathing sounds, light rustling.
+  * `> -15 dB` (Red): Crying / loud disturbance.
+* **Nursery Night-Mode (Auto-Dimming):**
+  * Display backlight auto-dims to **0% (Off)** or **5%** after 30 seconds of quiet.
+  * **Wake Triggers:** Front button press (`BTN_A`) or automatic display wake-up when audio level crosses threshold (e.g. `> -18 dB`).
+* **Refresh Rate:** Low UI refresh rate (**5–10 Hz**) to prevent SPI bus starvation and keep Core 1 free for Opus DSP.
+
+---
+
+## 5. Software Architecture: ESP32-S3 Sender Firmware (ESP-IDF)
 
 ```
-┌────────────────────────────────────────────────────────┐
-│                   ESP32-S3 SENDER                      │
-│                                                        │
-│  [ I2S MEMS Mic ] (e.g. INMP441 / SPH0645)             │
-│        │ (16-bit PCM @ 16 kHz / 48 kHz Mono)           │
-│        ▼                                               │
-│  [ Task: audio_capture_task (Core 0, High Prio) ]      │
-│        │ DMA Ringbuffer -> 20ms Frame Queue            │
-│        ▼                                               │
-│  [ Task: audio_dsp_encode_task (Core 1, Med-High) ]    │
-│        │ Software High-Pass (80Hz) + VAD (Optional)    │
-│        │ Opus Encoder (VoIP mode, 16-24 kbps)          │
-│        │ RTP Packetization (PT 96, Seq, TS, SSRC)      │
-│        ▼                                               │
-│  [ Task: network_tx_task (Core 0, Med Prio) ]          │
-│        │ SRTP Encryption via libsrtp (AES-CTR / HMAC)  │
-│        │ UDP Multicast Socket (sendto)                 │
-└────────────────────────┬───────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                   M5StickS3 SENDER                      │
+│                                                         │
+│  [ ES8311 Codec via I2C (0x18) - Set PGA Gain & Clocks] │
+│        │                                                │
+│  [ Task: audio_capture_task (Core 0, High Prio) ]       │
+│        │ I2S DMA Ingest (16 kHz / 16-bit Mono / 20ms)   │
+│        ▼                                                │
+│  [ Task: audio_encode_task (Core 1, Med-High Prio) ]    │
+│        │ High-Pass Filter (80Hz)                        │
+│        │ Opus Encoder (libopus, VoIP mode, 16-24 kbps)  │
+│        │ RTP Header Generation (PT=96, Seq, TS)         │
+│        ▼                                                │
+│  [ Task: network_tx_task (Core 0, Med Prio) ]           │
+│        │ SRTP Encryption (libsrtp AES-CTR + HMAC-SHA1)  │
+│        │ UDP Multicast Socket sendto()                  │
+│        ▼                                                │
+│  [ Task: ui_display_task (Core 1, Low Prio) ]           │
+│        │ ST7789 LCD: Status, IP, VU-meter, Night-Mode   │
+└────────────────────────┬────────────────────────────────┘
                          │
                          ▼
-             Network: 239.255.0.1:5004 (TTL=1)
+         Network: 239.255.0.1:5004 (TTL=1)
                          │
          ┌───────────────┴───────────────┐
          ▼                               ▼
@@ -50,73 +127,47 @@ Instead of relying on heavy application-layer stacks (e.g., WebRTC, SIP, or clou
 └──────────────────┘           └──────────────────┘
 ```
 
----
+### 5.1 Audio Processing Pipeline
+1. **Boot Initialization:**
+   * Configure I2C master on `GPIO 47/48`.
+   * Configure ES8311 codec registers: set input to onboard mic, configure ADC PGA (+18 dB to +24 dB), enable `MCLK`.
+   * Initialize standard ESP-IDF `i2s_driver` (Philips format, 16 kHz sample rate, 16-bit depth).
+2. **Audio Capture Task:**
+   * Reads 20 ms frames (320 samples / 640 bytes) via DMA into FreeRTOS Ringbuffer.
+3. **Opus Encoding Task:**
+   * Applies IIR High-Pass Filter (80 Hz cutoff) to suppress low-frequency hum.
+   * Computes peak/RMS level and sends metric to UI task.
+   * Encodes raw PCM to Opus frame (40–60 bytes at 16–24 kbps).
+   * Constructs 12-byte RTP Header (`Payload Type 96`, incrementing Sequence Number and Timestamp `+= 320`).
+4. **SRTP Network Task:**
+   * Encrypts payload with `libsrtp` (`AES_CM_128_HMAC_SHA1_80`) using Pre-Shared Key + Salt.
+   * Transmits via BSD UDP Socket to multicast group `239.255.0.1:5004`.
 
-## 3. Hardware Bill of Materials (BOM)
-
-| Component | Function / Spec | Typical Price (Est.) |
-| :--- | :--- | :--- |
-| **ESP32-S3 Dev Board** | Dual-core Xtensa LX7 @ 240MHz, 4MB/8MB Flash, 2MB+ PSRAM, USB-C | ~$15 - $20 / CHF 15-22 |
-| **I2S MEMS Mic Module** | INMP441 or Adafruit SPH0645LM4H (Digital I2S, high sensitivity) | ~$6 - $9 / CHF 7-10 |
-| **Power Supply** | 5V / 2A USB Power Adapter + 1-2m USB-C Cable | ~$10 - $15 / CHF 12-18 |
-| **Enclosure** | 3D printed custom enclosure with acoustic port & USB-C cutout | Custom / < CHF 5 |
-
----
-
-## 4. Hardware Pinout & Wiring (ESP32-S3 standard mapping)
-
-| INMP441 / SPH0645 Pin | ESP32-S3 GPIO | Note |
-| :--- | :--- | :--- |
-| **VDD / 3V3** | 3V3 | Clean 3.3V power rail |
-| **GND** | GND | Common Ground |
-| **SD / DOUT** | GPIO 4 (I2S_DATA_IN) | Serial Data Out from Mic |
-| **WS / LRCLK** | GPIO 5 (I2S_WS) | Word Select / Frame Clock |
-| **SCK / BCLK** | GPIO 6 (I2S_BCLK) | Bit Clock |
-| **L/R** | GND (or VDD) | Tie to GND for Left channel mono |
+### 5.2 Logging, Flash Wear & Reliability Constraints
+* **Zero Flash Logging:** No runtime logging to SPIFFS/NVS/LittleFS during streaming.
+* **Log Level in Production:** `CONFIG_LOG_DEFAULT_LEVEL_NONE=y` or `CONFIG_LOG_DEFAULT_LEVEL_ERROR=y`.
+* **Watchdog Integration:** FreeRTOS Task Watchdog Timer (TWDT) attached to audio and network tasks. Auto-reset Wi-Fi stack or soft-reboot if tasks stall for > 3000 ms.
 
 ---
 
-## 5. Software Architecture: ESP32-S3 Firmware (ESP-IDF)
+## 6. PoC Validation: Desktop VLC Playback
 
-### 5.1 FreeRTOS Task Layout & Priorities
-1. **`audio_capture_task` (Priority: 10, Affinity: Core 0):**
-   * Reads I2S samples in chunks of 20 ms (at 16 kHz = 320 samples / 640 bytes).
-   * Pushes raw PCM buffer to `xQueueAudioFrames` (Queue length: 4 to prevent backlog/latency build-up).
-2. **`audio_dsp_encode_task` (Priority: 8, Affinity: Core 1):**
-   * Pops PCM frame.
-   * Simple IIR High-Pass Filter (cutoff 80–100 Hz) to eliminate DC offset and low-frequency rumble.
-   * Opus encoding using `libopus` (Voice profile, 16–24 kbps).
-   * Generates RTP Header (12 bytes: `V=2`, `PT=96`, Sequence Number increment, Timestamp `+= 320`).
-3. **`network_tx_task` (Priority: 6, Affinity: Core 0):**
-   * Applies SRTP protection (`srtp_protect()` with static Master Key + Salt).
-   * `sendto()` packet over raw UDP socket to `239.255.0.1:5004`.
-
-### 5.2 Flash Wear & Logging Hygiene (Critical!)
-* **No persistent flash logging:** The ESP32 must never log runtime events or audio metrics to SPIFFS/NVS/LittleFS to prevent flash wear and I/O blocking.
-* **Production Log Level:** Set `CONFIG_LOG_DEFAULT_LEVEL_NONE=y` or `CONFIG_LOG_DEFAULT_LEVEL_ERROR=y`.
-* **UART Debug Only:** When debugging, logs must strictly stream over USB-CDC/UART ringbuffer without blocking tasks.
-* **Watchdog Integration:** FreeRTOS Task Watchdog Timer (TWDT) enabled on audio and network tasks. If network freezes for > 3 seconds, reset the Wi-Fi stack or soft-reboot.
-
----
-
-## 6. Testing & Validation: Desktop PoC with VLC
-
-Before developing any mobile client, the sender is verified on a PC/Mac using a static SDP file.
+To verify the sender before building the mobile app, open a static SDP file on PC/Mac:
 
 ### `babyphone.sdp`
 ```text
 v=0
 o=- 0 0 IN IP4 239.255.0.1
-s=ESP32 Multicast Babyphone
+s=M5StickS3 Multicast Babyphone
 c=IN IP4 239.255.0.1/1
 t=0 0
 m=audio 5004 RTP/SAVP 96
 a=rtpmap:96 OPUS/48000/1
 a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:W1NkZmIzZDRlN2Y4ZzloMWoyazNsNG01bjZvN3A4
 ```
-*Note: The inline base64 string consists of 16-byte Master Key + 14-byte Master Salt.*
+*(Base64 key contains 16-byte Master Key + 14-byte Master Salt).*
 
-**Execution:**
+**Command:**
 ```bash
 vlc babyphone.sdp
 ```
@@ -125,82 +176,49 @@ vlc babyphone.sdp
 
 ## 7. Software Architecture: Flutter Client (Android)
 
-### 7.1 Android Low-Level Network Pitfalls & Workarounds
-1. **Multicast Packet Filtering by OS:**
-   * Android drops multicast packets when the screen is off or in deep doze mode by default.
-   * **Fix:** Acquire `WifiManager.MulticastLock` and `PowerManager.WakeLock` (Partial) via native Kotlin method channel or plugin (`wifi_iot` / custom platform code).
-   * **Manifest Permissions:**
-     * `android.permission.CHANGE_WIFI_MULTICAST_STATE`
-     * `android.permission.INTERNET`
-     * `android.permission.ACCESS_WIFI_STATE`
-     * `android.permission.WAKE_LOCK`
-     * `android.permission.FOREGROUND_SERVICE`
-     * `android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK`
-2. **Wi-Fi AP IGMP Snooping:**
-   * Ensure local Wi-Fi router / Access Points have **IGMP Snooping** enabled or properly forward local multicast traffic between 2.4 GHz and 5 GHz bands.
-
-### 7.2 Dart/Flutter Processing Pipeline
-```dart
-// 1. Setup RawDatagramSocket
-final socket = await RawDatagramSocket.bind(
-  InternetAddress.anyIPv4, 
-  5004, 
-  reuseAddress: true, 
-  reusePort: true
-);
-
-// 2. Join Multicast Group
-final multicastGroup = InternetAddress('239.255.0.1');
-socket.joinMulticast(multicastGroup);
-
-// 3. Packet Handling Loop
-socket.listen((event) {
-  if (event == RawSocketEvent.read) {
-    Datagram? dg = socket.receive();
-    if (dg != null) {
-      // Step A: Parse RTP & Decrypt SRTP (AES-CTR with PSK)
-      // Step B: Strip Header -> Opus Payload
-      // Step C: Decode Opus -> PCM
-      // Step D: Feed Audio Track / RingBuffer (AAudio / OpenSL ES)
-    }
-  }
-});
-```
+### 7.1 Low-Level Networking Requirements
+1. **Multicast Lock & Wake Lock:**
+   * Android drops multicast packets in doze/screen-off mode.
+   * App must acquire `WifiManager.MulticastLock` and run a `ForegroundService` with `FOREGROUND_SERVICE_MEDIA_PLAYBACK`.
+2. **Socket Handling in Dart:**
+   ```dart
+   final socket = await RawDatagramSocket.bind(
+     InternetAddress.anyIPv4, 
+     5004, 
+     reuseAddress: true, 
+     reusePort: true
+   );
+   socket.joinMulticast(InternetAddress('239.255.0.1'));
+   
+   socket.listen((event) {
+     if (event == RawSocketEvent.read) {
+       final dg = socket.receive();
+       if (dg != null) {
+         // 1. Strip RTP & Decrypt SRTP (AES-CTR PSK)
+         // 2. Decode Opus frame via FFI libopus
+         // 3. Push to AudioTrack / OpenSL ES buffer
+       }
+     }
+   });
+   ```
 
 ---
 
-## 8. Critical Review & Open Design Questions for Future Iterations
+## 8. Implementation Roadmap & Milestones
 
-### A. Wi-Fi Multicast Performance & Packet Drop (Crucial!)
-* **Issue:** Wi-Fi routers transmit 802.11 Multicast at basic/lowest beacon rates (often 1–6 Mbps) to ensure all clients receive it, causing high airtime consumption and potential packet drops in crowded RF environments.
-* **Mitigation / Considerations:**
-  * Keep Opus payload very small (16 kbps = ~40-60 byte payloads per 20ms packet).
-  * If packet drop occurs: Consider enabling Multicast-to-Unicast conversion on modern APs (e.g., igmp-snooping with unicast helper), or fallback to a lightweight Unicast UDP stream if only 1 receiver is needed.
-
-### B. SRTP Replay Protection & Sequence Rollover (ROC)
-* **Issue:** Because there is no initial handshake, when the ESP32 restarts, its RTP Sequence Number resets to 0 (or random). A listening client might reject packets as replay attacks if the SRTP replay window is active.
-* **Mitigation:**
-  * Configure the client SRTP unprotect layer with a sliding replay window or reset the SRTP session context if timestamps jump backwards.
-
-### C. Voice Activity Detection (VAD) vs. Continuous Stream
-* For a baby monitor, parents often want to hear background room ambient noise (confirmation that the stream is alive).
-* **Recommendation:** Keep continuous stream running, but transmit Comfort Noise Frames (CNG) or drop bitrate to 6–8 kbps during silence rather than cutting the stream entirely.
-
----
-
-## 9. Implementation Roadmap & To-Dos
-
-- [ ] **Milestone 1: Hardware Assembly & Basic I2S Testing**
-  - [ ] Solder headers / connect INMP441 to ESP32-S3.
-  - [ ] Write minimal ESP-IDF app reading I2S samples and logging peak amplitude to UART.
-- [ ] **Milestone 2: Unencrypted UDP Multicast Streaming**
-  - [ ] Integrate `libopus` into ESP-IDF.
+- [ ] **Milestone 1: Toolchain, ES8311 & Display Bring-up**
+  - [ ] Configure ESP-IDF project for ESP32-S3 with native USB-CDC.
+  - [ ] Initialize I2C and configure ES8311 codec registers.
+  - [ ] Initialize ST7789 LCD driver; display IP, Wi-Fi RSSI, and dynamic audio VU-meter bar.
+- [ ] **Milestone 2: Unencrypted Multicast & VLC Validation**
+  - [ ] Integrate `libopus` encoder into firmware.
   - [ ] Stream unencrypted RTP/Opus to `239.255.0.1:5004`.
-  - [ ] Verify playback in VLC (`RTP/AVP`).
-- [ ] **Milestone 3: SRTP Encryption Integration**
-  - [ ] Integrate `libsrtp` on ESP-IDF with fixed PSK.
-  - [ ] Update SDP file for VLC (`RTP/SAVP`) and verify hardware-accelerated playback.
-- [ ] **Milestone 4: Flutter Android Client Development**
-  - [ ] Implement Foreground Service + MulticastLock in Android module.
-  - [ ] Implement UDP multicast receiver + SRTP decrypt + Opus decode in Dart/FFI.
-  - [ ] Add visual VU-meter, noise-threshold alerts, and background audio playback.
+  - [ ] Verify playback and latency with VLC (`RTP/AVP`).
+- [ ] **Milestone 3: SRTP Encryption (Pre-Shared Key)**
+  - [ ] Integrate `libsrtp` on ESP32-S3 using hardware AES acceleration.
+  - [ ] Validate encrypted playback with `babyphone.sdp` in VLC (`RTP/SAVP`).
+- [ ] **Milestone 4: Flutter Android Client**
+  - [ ] Implement Kotlin Foreground Service with `MulticastLock`.
+  - [ ] Build Dart FFI pipeline (SRTP decrypt -> Opus decode -> AudioTrack playback).
+  - [ ] Add background listening, audio level VU-meter, and threshold notification alerts.
+  - 
