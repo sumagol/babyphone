@@ -1,0 +1,9 @@
+# Set target to ESP32-S3
+CONFIG_IDF_TARGET="esp32s3"
+
+# Audio processing often benefits from a 1000Hz RTOS tick rate
+CONFIG_FREERTOS_HZ=1000
+
+# Enable PSRAM (M5StickS3 has 8MB Octal PSRAM)
+CONFIG_ESP32S3_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM_MODE_OCT=y

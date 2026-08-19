@@ -207,12 +207,12 @@ vlc babyphone.sdp
 ## 8. Implementation Roadmap & Milestones
 
 - [ ] **Milestone 1: Toolchain, ES8311 & Display Bring-up**
-  - [ ] Configure ESP-IDF project for ESP32-S3 with native USB-CDC.
-  - [ ] Initialize I2C and configure ES8311 codec registers.
-  - [ ] Initialize ST7789 LCD driver; display IP, Wi-Fi RSSI, and dynamic audio VU-meter bar.
+  - [x] Configure ESP-IDF project for ESP32-S3 with native USB-CDC.
+  - [x] Initialize I2C and configure ES8311 codec registers (Drafted).
+  - [x] Initialize ST7789 LCD driver; display IP, Wi-Fi RSSI, and dynamic audio VU-meter bar (Drafted).
 - [ ] **Milestone 2: Unencrypted Multicast & VLC Validation**
-  - [ ] Integrate `libopus` encoder into firmware.
-  - [ ] Stream unencrypted RTP/Opus to `239.255.0.1:5004`.
+  - [x] Integrate `libopus` encoder into firmware.
+  - [x] Stream unencrypted RTP/Opus to `239.255.0.1:5004`.
   - [ ] Verify playback and latency with VLC (`RTP/AVP`).
 - [ ] **Milestone 3: SRTP Encryption (Pre-Shared Key)**
   - [ ] Integrate `libsrtp` on ESP32-S3 using hardware AES acceleration.

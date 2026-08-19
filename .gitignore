@@ -53,3 +53,8 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# others
+managed_components/
+/firmware/main/secrets.h
+/firmware/build/
