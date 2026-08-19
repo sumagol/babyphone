@@ -58,3 +58,10 @@ dkms.conf
 managed_components/
 /firmware/main/secrets.h
 /firmware/build/
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/.gitignore
+/.idea/babyphone.iml
+/.idea/modules.xml
+/.idea/vcs.xml
+/.vscode/settings.json
