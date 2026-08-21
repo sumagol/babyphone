@@ -10,14 +10,16 @@ static const char *TAG = "audio_capture";
 
 #define I2S_MCLK 18
 #define I2S_BCLK 17
+#define I2S_SAMPLE_RATE 8000
 #define I2S_LRCK 15
 #define I2S_SDIN 16
 #define I2S_SDOUT 14
 
-#define SAMPLE_RATE 16000
-// 20ms frame at 16kHz = 320 samples. 16-bit mono = 2 bytes per sample = 640 bytes per frame.
-#define FRAME_SAMPLES 320 
-#define FRAME_SIZE_BYTES (FRAME_SAMPLES * 2)
+#define SAMPLE_RATE 8000
+#define FRAME_SAMPLES 160 
+// We will capture BOTH slots (stereo) to avoid missing the active channel.
+// 16-bit stereo = 4 bytes per sample frame.
+#define FRAME_SIZE_BYTES (FRAME_SAMPLES * 4)
 
 static i2s_chan_handle_t rx_chan;
 
@@ -37,8 +39,11 @@ static void audio_capture_task(void *args)
     while (1) {
         esp_err_t ret = i2s_channel_read(rx_chan, rx_buf, FRAME_SIZE_BYTES, &bytes_read, portMAX_DELAY);
         if (ret == ESP_OK && bytes_read == FRAME_SIZE_BYTES) {
-            // Push the 20ms frame to the Opus encoder via Ringbuffer
+            // Push the stereo frame (640 bytes) to the encoder via Ringbuffer
             xRingbufferSend(pcm_out, rx_buf, FRAME_SIZE_BYTES, portMAX_DELAY);
+        } else {
+            ESP_LOGE(TAG, "I2S read failed: %d, bytes_read: %d", ret, bytes_read);
+            vTaskDelay(pdMS_TO_TICKS(10)); // Prevent watchdog/starvation if I2S is returning immediately
         }
     }
 }
@@ -70,6 +75,8 @@ esp_err_t audio_capture_init(RingbufHandle_t pcm_out_buf)
     };
     // Force standard MCLK multiplier
     std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+    // Capture both slots so we don't miss the mic data
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
 
     ret = i2s_channel_init_std_mode(rx_chan, &std_cfg);
     if (ret != ESP_OK) return ret;
