@@ -62,14 +62,8 @@ static void audio_encoder_task(void *args)
         
         if (pcm_frame) {
             // Encode the 20ms frame to G.711a
-            // pcm_frame contains 160 left and 160 right samples (alternating)
             for (int i = 0; i < FRAME_SAMPLES; i++) {
-                int32_t mixed_sample = ((int32_t)pcm_frame[i*2] + (int32_t)pcm_frame[i*2 + 1]);
-                // Clip if it overflows 16-bit
-                if (mixed_sample > 32767) mixed_sample = 32767;
-                if (mixed_sample < -32768) mixed_sample = -32768;
-                
-                enc_buffer[12 + i] = linear2alaw((int16_t)mixed_sample);
+                enc_buffer[12 + i] = linear2alaw(pcm_frame[i]);
             }
             vRingbufferReturnItem(pcm_in, pcm_frame);
 

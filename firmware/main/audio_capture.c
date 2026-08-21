@@ -17,9 +17,8 @@ static const char *TAG = "audio_capture";
 
 #define SAMPLE_RATE 8000
 #define FRAME_SAMPLES 160 
-// We will capture BOTH slots (stereo) to avoid missing the active channel.
-// 16-bit stereo = 4 bytes per sample frame.
-#define FRAME_SIZE_BYTES (FRAME_SAMPLES * 4)
+// 20ms frame at 8kHz = 160 samples. 16-bit mono = 2 bytes per sample = 320 bytes per frame.
+#define FRAME_SIZE_BYTES (FRAME_SAMPLES * 2)
 
 static i2s_chan_handle_t rx_chan;
 
@@ -39,7 +38,7 @@ static void audio_capture_task(void *args)
     while (1) {
         esp_err_t ret = i2s_channel_read(rx_chan, rx_buf, FRAME_SIZE_BYTES, &bytes_read, portMAX_DELAY);
         if (ret == ESP_OK && bytes_read == FRAME_SIZE_BYTES) {
-            // Push the stereo frame (640 bytes) to the encoder via Ringbuffer
+            // Push the 20ms frame to the encoder via Ringbuffer
             xRingbufferSend(pcm_out, rx_buf, FRAME_SIZE_BYTES, portMAX_DELAY);
         } else {
             ESP_LOGE(TAG, "I2S read failed: %d, bytes_read: %d", ret, bytes_read);
@@ -75,8 +74,8 @@ esp_err_t audio_capture_init(RingbufHandle_t pcm_out_buf)
     };
     // Force standard MCLK multiplier
     std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
-    // Capture both slots so we don't miss the mic data
-    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
+    // Force DMA to capture only ONE slot to prevent reading stereo
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
 
     ret = i2s_channel_init_std_mode(rx_chan, &std_cfg);
     if (ret != ESP_OK) return ret;
