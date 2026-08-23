@@ -10,14 +10,14 @@ static const char *TAG = "audio_capture";
 
 #define I2S_MCLK 18
 #define I2S_BCLK 17
-#define I2S_SAMPLE_RATE 8000
+#define I2S_SAMPLE_RATE 16000
 #define I2S_LRCK 15
 #define I2S_SDIN 16
 #define I2S_SDOUT 14
 
-#define SAMPLE_RATE 8000
-#define FRAME_SAMPLES 160 
-// 20ms frame at 8kHz = 160 samples. 16-bit mono = 2 bytes per sample = 320 bytes per frame.
+#define SAMPLE_RATE 16000
+#define FRAME_SAMPLES 320 
+// 20ms frame at 16kHz = 320 samples. 16-bit mono = 2 bytes per sample = 640 bytes per frame.
 #define FRAME_SIZE_BYTES (FRAME_SAMPLES * 2)
 
 static i2s_chan_handle_t rx_chan;
