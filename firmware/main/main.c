@@ -6,6 +6,7 @@
 
 #include "hw_codec.h"
 #include "hw_display.h"
+#include "ui.h"
 #include "audio_capture.h"
 #include "audio_encoder.h"
 #include "network_tx.h"
@@ -31,11 +32,16 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        ui_set_wifi_status(false);
         esp_wifi_connect();
         ESP_LOGI(TAG, "Disconnected from AP, retrying connection...");
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        char ip_str[16];
+        snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&event->ip_info.ip));
+        ui_set_ip_address(ip_str);
+        ui_set_wifi_status(true);
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }
@@ -104,21 +110,26 @@ void app_main(void)
     // Otherwise, transmitting Wi-Fi with the backlight on causes a hardware brownout!
     ESP_ERROR_CHECK(hw_codec_init());
     ESP_ERROR_CHECK(hw_display_init());
+    
+    // Initialize UI right away
+    ESP_ERROR_CHECK(ui_init());
 
-    wifi_init_sta();
-    // 10 PCM frames buffer (10 * 640 bytes)
-    RingbufHandle_t pcm_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_NOSPLIT);
-    RingbufHandle_t rtp_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_NOSPLIT);
+    // Allocate ringbuffers and start audio pipelines BEFORE Wi-Fi
+    // This ensures the 32KB internal stack for the Opus encoder can be allocated
+    // before the Wi-Fi driver fragments the internal heap!
+    RingbufHandle_t pcm_ringbuf = xRingbufferCreate(16384, RINGBUF_TYPE_NOSPLIT);
+    RingbufHandle_t rtp_ringbuf = xRingbufferCreate(16384, RINGBUF_TYPE_NOSPLIT);
 
-    // Start Audio Pipeline Tasks
-    ESP_ERROR_CHECK(network_tx_init(rtp_ringbuf));
     ESP_ERROR_CHECK(audio_encoder_init(pcm_ringbuf, rtp_ringbuf));
     ESP_ERROR_CHECK(audio_capture_init(pcm_ringbuf));
 
-    // Show a green screen to indicate successful boot
-    hw_display_test_pattern();
-
+    wifi_init_sta();
     
+    // network_tx creates a socket, so it must be initialized AFTER Wi-Fi (LwIP) is up
+    ESP_ERROR_CHECK(network_tx_init(rtp_ringbuf));
+
+    ui_set_streaming_status(true);
+
     // Keep the task alive but stop blinking
     while (1) {
         vTaskDelay(2000 / portTICK_PERIOD_MS);

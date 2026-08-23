@@ -10,19 +10,21 @@ static const char *TAG = "audio_capture";
 
 #define I2S_MCLK 18
 #define I2S_BCLK 17
-#define I2S_SAMPLE_RATE 16000
+#define I2S_SAMPLE_RATE 48000
 #define I2S_LRCK 15
 #define I2S_SDIN 16
 #define I2S_SDOUT 14
 
-#define SAMPLE_RATE 16000
-#define FRAME_SAMPLES 320 
-// 20ms frame at 16kHz = 320 samples. 16-bit mono = 2 bytes per sample = 640 bytes per frame.
+#define SAMPLE_RATE 48000
+#define FRAME_SAMPLES 960 
+// 20ms frame at 48kHz = 960 samples. 16-bit mono = 2 bytes per sample = 1920 bytes per frame.
 #define FRAME_SIZE_BYTES (FRAME_SAMPLES * 2)
 
 static i2s_chan_handle_t rx_chan;
 
 static RingbufHandle_t pcm_out;
+
+#include "ui.h"
 
 static void audio_capture_task(void *args)
 {
@@ -35,11 +37,33 @@ static void audio_capture_task(void *args)
     }
 
     size_t bytes_read = 0;
+    int frame_count = 0;
+    
     while (1) {
         esp_err_t ret = i2s_channel_read(rx_chan, rx_buf, FRAME_SIZE_BYTES, &bytes_read, portMAX_DELAY);
         if (ret == ESP_OK && bytes_read == FRAME_SIZE_BYTES) {
             // Push the 20ms frame to the encoder via Ringbuffer
             xRingbufferSend(pcm_out, rx_buf, FRAME_SIZE_BYTES, portMAX_DELAY);
+            
+            // Calculate VU Meter (RMS) every 5 frames (10Hz update rate)
+            if (++frame_count >= 5) {
+                frame_count = 0;
+                double sum_sq = 0.0;
+                for (int i = 0; i < FRAME_SAMPLES; i++) {
+                    double sample = (double)rx_buf[i];
+                    sum_sq += sample * sample;
+                }
+                double rms = sqrt(sum_sq / FRAME_SAMPLES);
+                
+                // Convert to dBFS (max value for int16 is 32768)
+                int db = -60; // default floor
+                if (rms > 0.1) { // Avoid log10(0)
+                    db = (int)(20.0 * log10(rms / 32768.0));
+                }
+                
+                ui_set_audio_level(db);
+            }
+            
         } else {
             ESP_LOGE(TAG, "I2S read failed: %d, bytes_read: %d", ret, bytes_read);
             vTaskDelay(pdMS_TO_TICKS(10)); // Prevent watchdog/starvation if I2S is returning immediately

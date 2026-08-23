@@ -96,7 +96,7 @@ The display operates in landscape orientation ($240 	imes 135	ext{ px}$) or vert
 │  [ ES8311 Codec via I2C (0x18) - Set PGA Gain & Clocks] │
 │        │                                                │
 │  [ Task: audio_capture_task (Core 0, High Prio) ]       │
-│        │ I2S DMA Ingest (16 kHz / 16-bit Mono / 20ms)   │
+│        │ I2S DMA Ingest (48 kHz / 16-bit Mono / 20ms)   │
 │        ▼                                                │
 │  [ Task: audio_encode_task (Core 1, Med-High Prio) ]    │
 │        │ High-Pass Filter (80Hz)                        │
@@ -130,15 +130,15 @@ The display operates in landscape orientation ($240 	imes 135	ext{ px}$) or vert
 ### 5.1 Audio Processing Pipeline
 1. **Boot Initialization:**
    * Configure I2C master on `GPIO 47/48`.
-   * Configure ES8311 codec registers: set input to onboard mic, configure ADC PGA (+18 dB to +24 dB), enable `MCLK`.
-   * Initialize standard ESP-IDF `i2s_driver` (Philips format, 16 kHz sample rate, 16-bit depth).
+   * Configure ES8311 codec registers: set input to onboard mic, configure ADC PGA (+3 dB), enable `MCLK`.
+   * Initialize standard ESP-IDF `i2s_driver` (Philips format, 48 kHz sample rate, 16-bit depth).
 2. **Audio Capture Task:**
-   * Reads 20 ms frames (320 samples / 640 bytes) via DMA into FreeRTOS Ringbuffer.
+   * Reads 20 ms frames (960 samples / 1920 bytes) via DMA into FreeRTOS Ringbuffer.
 3. **Opus Encoding Task:**
    * Applies IIR High-Pass Filter (80 Hz cutoff) to suppress low-frequency hum.
    * Computes peak/RMS level and sends metric to UI task.
-   * Encodes raw PCM to Opus frame (40–60 bytes at 16–24 kbps).
-   * Constructs 12-byte RTP Header (`Payload Type 96`, incrementing Sequence Number and Timestamp `+= 320`).
+   * Encodes raw PCM to Opus frame (40–80 bytes at 16–24 kbps, VBR).
+   * Constructs 12-byte RTP Header (`Payload Type 96`, incrementing Sequence Number and Timestamp `+= 960`).
 4. **SRTP Network Task:**
    * Encrypts payload with `libsrtp` (`AES_CM_128_HMAC_SHA1_80`) using Pre-Shared Key + Salt.
    * Transmits via BSD UDP Socket to multicast group `239.255.0.1:5004`.
@@ -170,6 +170,20 @@ a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:W1NkZmIzZDRlN2Y4ZzloMWoyazNsNG01bjZvN3
 **Command:**
 ```bash
 vlc babyphone.sdp
+```
+
+### 6.1 GStreamer Playback
+For low-latency Linux testing without VLC, you can use the following GStreamer pipeline. Note the inclusion of `rtpjitterbuffer` which is required for raw UDP:
+
+```bash
+gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
+  caps="application/x-rtp, media=audio, clock-rate=48000, encoding-name=OPUS, payload=96" \
+  ! rtpjitterbuffer latency=200 \
+  ! rtpopusdepay \
+  ! opusdec \
+  ! audioconvert \
+  ! audioresample \
+  ! pulsesink
 ```
 
 ---

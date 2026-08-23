@@ -1,3 +1,4 @@
 dependencies:
   idf: ">=5.0"
   78/esp-opus: "*"
+  lvgl/lvgl: ">=8.3.0,<9.0.0"

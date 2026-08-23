@@ -5,8 +5,8 @@
 
 static const char *TAG = "audio_encoder";
 
-#define SAMPLE_RATE 16000
-#define FRAME_SAMPLES 320 // 20ms at 16kHz
+#define SAMPLE_RATE 48000
+#define FRAME_SAMPLES 960 // 20ms at 48kHz
 #define OPUS_BITRATE 24000 // 24 kbps
 #define MAX_PAYLOAD_BYTES 128 // Opus frames at 24kbps are typically small (~60 bytes)
 
@@ -25,6 +25,8 @@ static void audio_encoder_task(void *args)
     }
     
     opus_encoder_ctl(encoder, OPUS_SET_BITRATE(OPUS_BITRATE));
+    // CRITICAL: M5StickS3 Opus encode takes 100% CPU without complexity=0 and -O3, starving Wi-Fi!
+    opus_encoder_ctl(encoder, OPUS_SET_COMPLEXITY(0));
 
     uint8_t enc_buffer[12 + MAX_PAYLOAD_BYTES]; // 12 bytes RTP header + Opus payload
     uint32_t rtp_timestamp = 0;
@@ -54,7 +56,9 @@ static void audio_encoder_task(void *args)
                 enc_buffer[8] = 0x12; enc_buffer[9] = 0x34; enc_buffer[10] = 0x56; enc_buffer[11] = 0x78;
 
                 rtp_sequence++;
-                rtp_timestamp += FRAME_SAMPLES;
+                // RFC 7587: Opus RTP timestamp MUST increment at 48000 Hz regardless of sample rate!
+                // 20ms frame = 48000 * 0.02 = 960.
+                rtp_timestamp += 960;
 
                 // Push RTP packet to network ringbuffer
                 xRingbufferSend(rtp_out, enc_buffer, 12 + nbBytes, portMAX_DELAY);
@@ -73,8 +77,14 @@ esp_err_t audio_encoder_init(RingbufHandle_t pcm_in_buf, RingbufHandle_t rtp_out
     pcm_in = pcm_in_buf;
     rtp_out = rtp_out_buf;
     
-    // Opus encoder requires a huge stack because libopus uses VLAs/alloca for scratch space internally.
-    // An 8KB stack will easily overflow into adjacent heap allocations (like the network_tx stack).
-    xTaskCreatePinnedToCore(audio_encoder_task, "audio_enc", 32768, NULL, configMAX_PRIORITIES - 2, NULL, 1);
+    ESP_LOGI(TAG, "Free internal heap before task: %d bytes", (int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    ESP_LOGI(TAG, "Largest internal free block: %d bytes", (int)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+
+    // Pin to Core 0 (alongside Wi-Fi/Audio capture) to leave Core 1 free for LVGL!
+    BaseType_t ret = xTaskCreatePinnedToCore(audio_encoder_task, "audio_enc", 32768, NULL, configMAX_PRIORITIES - 2, NULL, 0);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create audio_enc task! (Out of memory?)");
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
