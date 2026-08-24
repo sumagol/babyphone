@@ -52,6 +52,12 @@ The M5StickS3 routes its peripherals to the following internal ESP32-S3 GPIOs:
 * **`BTN_A` (Main Front Button):** `GPIO 35` (Wake display / Toggle status screen)
 * **Native USB-CDC/JTAG:** `GPIO 19 (D-)` / `GPIO 20 (D+)` (Flashing & serial monitoring)
 
+### D. PMIC (AXP2101 / M5PM1) Hardware Quirk & Software I2C
+The M5StickS3 uses an advanced PMIC located at I2C address `0x6E` (or `0x34` for some variants). 
+**CRITICAL HARDWARE BUG:** Reading registers from this specific PMIC using the standard ESP32 Hardware I2C driver (`i2c_master_transmit_receive`) will instantly cause a CPU lockup and throw an `Interrupt wdt timeout on CPU0` kernel panic.
+* **Current Workaround:** We only use blind, "fire-and-forget" writes (`i2c_master_transmit`) to the PMIC to enable the LCD power rail. Real-time battery telemetry over the network currently sends dummy values.
+* **Future Requirement:** To read the true `getBatteryLevel()` (Register `0xA4`) and `isCharging()` statuses without crashing the babyphone, a custom **Software I2C (bit-banging)** driver must be implemented in pure C to manually toggle the SDA/SCL pins and bypass the silicon bug.
+
 ---
 
 ## 4. Display UI & UX Specification (1.14″ ST7789 LCD)
@@ -60,17 +66,18 @@ The M5StickS3 routes its peripherals to the following internal ESP32-S3 GPIOs:
 The display operates in landscape orientation ($240 	imes 135	ext{ px}$) or vertical orientation, divided into 4 clear diagnostic zones:
 
 ```text
-┌────────────────────────────────────────────────────────┐
-│ [● REC] SRTP: ON      WiFi: -58dBm   BAT: 100% (USB)   │  <-- Header: Stream Status & Power
-├────────────────────────────────────────────────────────┤
-│ MULTICAST: 239.255.0.1:5004                            │  <-- Join Target Info
-│ LOCAL IP : 192.168.1.142                               │
-├────────────────────────────────────────────────────────┤
-│ AUDIO LEVEL (VU):                                      │
-│ [████████████████░░░░░░░░░░░░░░░░] -18 dB              │  <-- Dynamic Bar: Green / Yellow / Red
-├────────────────────────────────────────────────────────┤
-│ CODEC: OPUS 24kbps Mono (16kHz)     UPTIME: 02h:14m    │  <-- Stream Specs & Uptime
-└────────────────────────────────────────────────────────┘
+Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio)
+┌────────────────┐       ┌────────────────┐     ┌────────────────┐
+│   BABYPHONE    │       │   TARGET IP    │     │   AUDIO (VU)   │
+│                │       │                │     │                │
+│                │       │                │     │                │
+│                │       │                │     │  [██████░░░░]  │
+│  [● REC] LIVE  │   →   │  239.255.0.1   │  →  │                │
+│                │       │   Port 5004    │     │     -18 dB     │
+│                │       │                │     │                │
+│ WiFi: -58 dBm  │       │                │     │                │
+│ UPTIME: 02h:14m│       │ LOCAL IP: ...  │     │  OPUS 24kbps   │
+└────────────────┘       └────────────────┘     └────────────────┘
 ```
 
 ### 4.2 UI Elements & Color Coding

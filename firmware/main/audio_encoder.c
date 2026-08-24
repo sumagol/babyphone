@@ -28,23 +28,37 @@ static void audio_encoder_task(void *args)
     // CRITICAL: M5StickS3 Opus encode takes 100% CPU without complexity=0 and -O3, starving Wi-Fi!
     opus_encoder_ctl(encoder, OPUS_SET_COMPLEXITY(0));
 
-    uint8_t enc_buffer[12 + MAX_PAYLOAD_BYTES]; // 12 bytes RTP header + Opus payload
+    uint8_t enc_buffer[12 + 8 + MAX_PAYLOAD_BYTES]; // 12 bytes RTP header + 8 bytes extension + Opus payload
     uint32_t rtp_timestamp = 0;
     uint16_t rtp_sequence = 0;
+    
+    uint8_t dummy_battery = 100;
+    bool dummy_charging = true;
+    uint32_t frame_count = 0;
 
     while (1) {
         size_t item_size;
         int16_t *pcm_frame = (int16_t *)xRingbufferReceive(pcm_in, &item_size, portMAX_DELAY);
         
         if (pcm_frame) {
-            // Encode the 20ms frame with Opus
-            int nbBytes = opus_encode(encoder, pcm_frame, FRAME_SAMPLES, enc_buffer + 12, MAX_PAYLOAD_BYTES);
+            frame_count++;
+            // Drain battery by 1% every 5 seconds for visual testing
+            if (frame_count % 250 == 0) {
+                if (dummy_battery > 0) dummy_battery--;
+                else {
+                    dummy_battery = 100;
+                    dummy_charging = !dummy_charging; // Toggle charging state every cycle
+                }
+            }
+
+            // Encode the 20ms frame with Opus. Offset by 20 bytes (12 standard + 8 extension)
+            int nbBytes = opus_encode(encoder, pcm_frame, FRAME_SAMPLES, enc_buffer + 20, MAX_PAYLOAD_BYTES);
             
             vRingbufferReturnItem(pcm_in, pcm_frame);
 
             if (nbBytes > 0) {
                 // Construct RTP Header (12 bytes)
-                enc_buffer[0] = 0x80; // Version 2
+                enc_buffer[0] = 0x90; // Version 2 (0x80) | Extension bit set (0x10)
                 enc_buffer[1] = 96;   // Payload Type (96 for Dynamic/Opus)
                 enc_buffer[2] = rtp_sequence >> 8;
                 enc_buffer[3] = rtp_sequence & 0xFF;
@@ -55,13 +69,28 @@ static void audio_encoder_task(void *args)
                 // SSRC (Synchronization Source Identifier) - arbitrary
                 enc_buffer[8] = 0x12; enc_buffer[9] = 0x34; enc_buffer[10] = 0x56; enc_buffer[11] = 0x78;
 
+                // RTP Extension Header (4 bytes)
+                enc_buffer[12] = 0xBA; // Profile ID: 0xBABB ("Baby")
+                enc_buffer[13] = 0xBB;
+                enc_buffer[14] = 0x00; // Length: 1 (meaning one 32-bit word follows)
+                enc_buffer[15] = 0x01;
+
+                // RTP Extension Payload (4 bytes)
+                // Pack Charging State (Bit 7) and Battery Level (Bits 0-6)
+                uint8_t telemetry = (dummy_battery & 0x7F) | (dummy_charging ? 0x80 : 0x00);
+                
+                enc_buffer[16] = telemetry;
+                enc_buffer[17] = 0x00;
+                enc_buffer[18] = 0x00;
+                enc_buffer[19] = 0x00;
+
                 rtp_sequence++;
                 // RFC 7587: Opus RTP timestamp MUST increment at 48000 Hz regardless of sample rate!
                 // 20ms frame = 48000 * 0.02 = 960.
                 rtp_timestamp += 960;
 
-                // Push RTP packet to network ringbuffer
-                xRingbufferSend(rtp_out, enc_buffer, 12 + nbBytes, portMAX_DELAY);
+                // Push RTP packet to network ringbuffer (20 bytes headers + Opus payload)
+                xRingbufferSend(rtp_out, enc_buffer, 20 + nbBytes, portMAX_DELAY);
             } else {
                 ESP_LOGE(TAG, "Opus encode failed: %d", nbBytes);
             }
