@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include <string.h>
 #include "opus.h"
+#include "sw_i2c.h"
 
 static const char *TAG = "audio_encoder";
 
@@ -32,9 +33,12 @@ static void audio_encoder_task(void *args)
     uint32_t rtp_timestamp = 0;
     uint16_t rtp_sequence = 0;
     
-    uint8_t dummy_battery = 100;
-    bool dummy_charging = true;
+    uint8_t real_battery = 100;
+    bool real_charging = false;
     uint32_t frame_count = 0;
+    
+    // Initialize Software I2C on pins 47 (SDA) and 48 (SCL)
+    sw_i2c_init(47, 48);
 
     while (1) {
         size_t item_size;
@@ -42,12 +46,35 @@ static void audio_encoder_task(void *args)
         
         if (pcm_frame) {
             frame_count++;
-            // Drain battery by 1% every 5 seconds for visual testing
+            
+            // Read real PMIC values every 5 seconds (250 frames)
             if (frame_count % 250 == 0) {
-                if (dummy_battery > 0) dummy_battery--;
-                else {
-                    dummy_battery = 100;
-                    dummy_charging = !dummy_charging; // Toggle charging state every cycle
+                uint8_t bat_l = 0, bat_h = 0;
+                uint8_t pwr_src = 2; // Default to battery
+                
+                // Read from M5PM1 (0x6E)
+                if (sw_i2c_read_reg(0x6E, 0x22, &bat_l) && sw_i2c_read_reg(0x6E, 0x23, &bat_h)) {
+                    uint16_t voltage_mv = (bat_h << 8) | bat_l;
+                    
+                    // Convert voltage (3300mV - 4200mV) to percentage (0 - 100)
+                    if (voltage_mv >= 4150) real_battery = 100;
+                    else if (voltage_mv <= 3300) real_battery = 0;
+                    else real_battery = (uint8_t)(((voltage_mv - 3300) * 100) / (4150 - 3300));
+                    
+                    uint8_t vin_l = 0, vin_h = 0;
+                    if (sw_i2c_read_reg(0x6E, 0x24, &vin_l) && sw_i2c_read_reg(0x6E, 0x25, &vin_h)) {
+                        uint16_t vin_mv = (vin_h << 8) | vin_l;
+                        real_charging = (vin_mv > 4000); // 5V USB rail > 4V means it is plugged in!
+                    }
+                }
+                // Fallback to AXP2101 (0x34) if M5PM1 is not responding
+                else if (sw_i2c_read_reg(0x34, 0xA4, &bat_l)) {
+                    real_battery = bat_l & 0x7F;
+                    uint8_t chg_val = 0;
+                    if (sw_i2c_read_reg(0x34, 0x01, &chg_val)) {
+                        uint8_t status = chg_val & 0x07;
+                        real_charging = (status == 1 || status == 2 || status == 3);
+                    }
                 }
             }
 
@@ -77,7 +104,7 @@ static void audio_encoder_task(void *args)
 
                 // RTP Extension Payload (4 bytes)
                 // Pack Charging State (Bit 7) and Battery Level (Bits 0-6)
-                uint8_t telemetry = (dummy_battery & 0x7F) | (dummy_charging ? 0x80 : 0x00);
+                uint8_t telemetry = (real_battery & 0x7F) | (real_charging ? 0x80 : 0x00);
                 
                 enc_buffer[16] = telemetry;
                 enc_buffer[17] = 0x00;

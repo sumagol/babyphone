@@ -9,6 +9,7 @@ The system bypasses heavy application-layer protocols (WebRTC, SIP, Cloud WebSoc
 * **Dedicated Hardware Platform:** M5Stack M5StickS3 (ESP32-S3, ES8311 low-noise audio codec + high-SNR MEMS mic, 8MB PSRAM, integrated enclosure, internal battery backup).
 * **Stateless Broadcast Sender:** On boot, the device connects to Wi-Fi, initializes the ES8311 codec via I2C, starts I2S DMA capture, encodes to Opus, and streams SRTP packets to multicast group `239.255.0.1:5004`.
 * **Zero Cloud Dependency:** 100% local network execution for maximum privacy and resilience against WAN outages.
+* **Captive Portal Wi-Fi Setup:** Robust onboarding for new networks via a lightweight SoftAP setup (see [captive_portal_plan.md](captive_portal_plan.md) for architecture).
 * **Target Latency:** **< 80 ms** end-to-end on local Wi-Fi.
 * **Multi-Client Architecture:** Any number of clients (Desktop VLC, custom Flutter Android/iOS app, or secondary ESP32 hardware receiver like M5Stack ATOM Echo) can join or leave via IGMP without sender overhead.
 * **Integrated Glanceable UI:** 1.14″ LCD provides instant network status, battery level, live audio VU-meter, and nursery night-mode auto-dimming.

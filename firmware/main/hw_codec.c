@@ -111,7 +111,10 @@ esp_err_t hw_codec_init(void)
         vTaskDelay(pdMS_TO_TICKS(5));
     }
     
-    ESP_LOGI(TAG, "ES8311 I2C setup complete.");
+    ESP_LOGI(TAG, "ES8311 I2C setup complete. Deleting hardware I2C driver to free pins for Software I2C PMIC driver...");
+    
+    // Completely destroy the I2C driver to return pins 47 and 48 back to standard GPIO mode
+    i2c_del_master_bus(bus_handle);
 
     return ESP_OK;
 }
