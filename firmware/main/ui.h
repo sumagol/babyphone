@@ -17,6 +17,7 @@ esp_err_t ui_init(void);
  * @param connected true if connected, false otherwise
  */
 void ui_set_wifi_status(bool connected);
+void ui_set_provisioning_mode(void);
 
 /**
  * @brief Update the IP address text

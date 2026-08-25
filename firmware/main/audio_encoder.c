@@ -3,6 +3,7 @@
 #include <string.h>
 #include "opus.h"
 #include "sw_i2c.h"
+#include "mbedtls/aes.h"
 
 static const char *TAG = "audio_encoder";
 
@@ -11,12 +12,18 @@ static const char *TAG = "audio_encoder";
 #define OPUS_BITRATE 24000 // 24 kbps
 #define MAX_PAYLOAD_BYTES 128 // Opus frames at 24kbps are typically small (~60 bytes)
 
-static RingbufHandle_t pcm_in;
-static RingbufHandle_t rtp_out;
+static RingbufHandle_t pcm_in = NULL;
+static RingbufHandle_t rtp_out = NULL;
 
 static void audio_encoder_task(void *args)
 {
     ESP_LOGI(TAG, "Audio encoder task started on core %d (Opus)", xPortGetCoreID());
+
+    // Initialize AES-128-CTR with static key
+    mbedtls_aes_context aes;
+    mbedtls_aes_init(&aes);
+    const unsigned char key[16] = "BabyPhoneKey2026"; // Exactly 16 bytes
+    mbedtls_aes_setkey_enc(&aes, key, 128);
 
     int err;
     OpusEncoder *encoder = opus_encoder_create(SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP, &err);
@@ -55,11 +62,17 @@ static void audio_encoder_task(void *args)
                 // Read from M5PM1 (0x6E)
                 if (sw_i2c_read_reg(0x6E, 0x22, &bat_l) && sw_i2c_read_reg(0x6E, 0x23, &bat_h)) {
                     uint16_t voltage_mv = (bat_h << 8) | bat_l;
+                    static float filtered_voltage = -1;
+                    if (filtered_voltage < 0) {
+                        filtered_voltage = voltage_mv; // Initialize on first read
+                    } else {
+                        filtered_voltage = (0.8 * filtered_voltage) + (0.2 * voltage_mv); // Low-pass filter
+                    }
                     
-                    // Convert voltage (3300mV - 4200mV) to percentage (0 - 100)
-                    if (voltage_mv >= 4150) real_battery = 100;
-                    else if (voltage_mv <= 3300) real_battery = 0;
-                    else real_battery = (uint8_t)(((voltage_mv - 3300) * 100) / (4150 - 3300));
+                    // Convert filtered voltage (3300mV - 4200mV) to percentage (0 - 100)
+                    if (filtered_voltage >= 4150) real_battery = 100;
+                    else if (filtered_voltage <= 3300) real_battery = 0;
+                    else real_battery = (uint8_t)(((filtered_voltage - 3300) * 100) / (4150 - 3300));
                     
                     uint8_t vin_l = 0, vin_h = 0;
                     if (sw_i2c_read_reg(0x6E, 0x24, &vin_l) && sw_i2c_read_reg(0x6E, 0x25, &vin_h)) {
@@ -115,6 +128,17 @@ static void audio_encoder_task(void *args)
                 // RFC 7587: Opus RTP timestamp MUST increment at 48000 Hz regardless of sample rate!
                 // 20ms frame = 48000 * 0.02 = 960.
                 rtp_timestamp += 960;
+
+                // --- AES-128-CTR ENCRYPTION ---
+                unsigned char iv[16] = {0};
+                // IV = SSRC (4) + Sequence (2) + Timestamp (4) + Padding (6)
+                iv[0] = enc_buffer[8];  iv[1] = enc_buffer[9];  iv[2] = enc_buffer[10]; iv[3] = enc_buffer[11];
+                iv[4] = enc_buffer[2];  iv[5] = enc_buffer[3];
+                iv[6] = enc_buffer[4];  iv[7] = enc_buffer[5];  iv[8] = enc_buffer[6];  iv[9] = enc_buffer[7];
+                
+                size_t nc_off = 0;
+                unsigned char stream_block[16] = {0};
+                mbedtls_aes_crypt_ctr(&aes, nbBytes, &nc_off, iv, stream_block, enc_buffer + 20, enc_buffer + 20);
 
                 // Push RTP packet to network ringbuffer (20 bytes headers + Opus payload)
                 xRingbufferSend(rtp_out, enc_buffer, 20 + nbBytes, portMAX_DELAY);

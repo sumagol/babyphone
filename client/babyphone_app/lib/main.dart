@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_pcm_sound/flutter_pcm_sound.dart';
 import 'package:opus_codec_dart/opus_codec_dart.dart';
 import 'package:opus_codec/opus_codec.dart' as opus_codec;
+import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 Future<void> main() async {
@@ -173,9 +174,23 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
               }
 
               if (d.data.length > payloadOffset) {
-                final opusPayload = d.data.sublist(payloadOffset);
+                var opusPayload = d.data.sublist(payloadOffset);
                 try {
-                  List<int> pcmData = _decoder!.decode(input: opusPayload);
+                  // --- AES-128-CTR DECRYPTION ---
+                  // Reconstruct the 16-byte IV identically to the ESP32
+                  final ivBytes = Uint8List(16);
+                  // IV = SSRC (4) + Sequence (2) + Timestamp (4) + Padding (6)
+                  ivBytes[0] = d.data[8];  ivBytes[1] = d.data[9];  ivBytes[2] = d.data[10]; ivBytes[3] = d.data[11];
+                  ivBytes[4] = d.data[2];  ivBytes[5] = d.data[3];
+                  ivBytes[6] = d.data[4];  ivBytes[7] = d.data[5];  ivBytes[8] = d.data[6];  ivBytes[9] = d.data[7];
+
+                  final key = encrypt.Key.fromUtf8("BabyPhoneKey2026");
+                  final iv = encrypt.IV(ivBytes);
+                  final encrypter = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.ctr, padding: null));
+                  
+                  final decrypted = encrypter.decryptBytes(encrypt.Encrypted(Uint8List.fromList(opusPayload)), iv: iv);
+                  
+                  List<int> pcmData = _decoder!.decode(input: Uint8List.fromList(decrypted));
                   
                   // Acoustic warning for low battery
                   if (_alarmEnabled && batteryPercent < 10 && !isCharging) {
@@ -183,7 +198,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                     // Play a 0.5s beep every 3 seconds (48000 * 3 = 144000)
                     if ((_beepSampleCounter % 144000) < 24000) {
                       for (int i = 0; i < pcmData.length; i++) {
-                        double sample = sin(_beepPhase) * 6000.0; // 440Hz sine wave
+                        double sample = sin(_beepPhase) * 16000.0; // 440Hz sine wave, increased volume
                         _beepPhase += 2 * pi * 440.0 / 48000.0;
                         if (_beepPhase > 2 * pi) _beepPhase -= 2 * pi;
                         

@@ -1,5 +1,6 @@
 # Captive Portal Wi-Fi Manager (SoftAP Provisioning)
 
+**[STATUS: COMPLETED on Aug 25, 2026]**
 We will replace the hardcoded Wi-Fi credentials with a robust Captive Portal system. On boot, the ESP32 will attempt to connect to the last saved network. If it fails (e.g., you are at a new hotel), it will spin up a temporary Wi-Fi network (`Babyphone-Setup`). Connecting to this network will pop up a webpage to enter new Wi-Fi credentials. 
 
 To ensure this doesn't impact the highly-tuned Opus streaming performance, **the Captive Portal (HTTP Server, DNS Server, and SoftAP interface) will be completely destroyed and their memory freed** before the audio pipeline is ever allowed to start.

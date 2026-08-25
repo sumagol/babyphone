@@ -42,25 +42,39 @@ static void audio_capture_task(void *args)
     while (1) {
         esp_err_t ret = i2s_channel_read(rx_chan, rx_buf, FRAME_SIZE_BYTES, &bytes_read, portMAX_DELAY);
         if (ret == ESP_OK && bytes_read == FRAME_SIZE_BYTES) {
+            
+            // Calculate RMS for every frame to use for both the VU meter and the Noise Gate
+            double sum_sq = 0.0;
+            for (int i = 0; i < FRAME_SAMPLES; i++) {
+                double sample = (double)rx_buf[i];
+                sum_sq += sample * sample;
+            }
+            double rms = sqrt(sum_sq / FRAME_SAMPLES);
+
+            // --- SOFTWARE NOISE GATE ---
+            // Tuned for a baby monitor: Very sensitive to allow quiet murmurs/breathing through,
+            // while only suppressing the absolute lowest-level electrical white noise/hiss.
+            const double NOISE_GATE_THRESHOLD = 75.0; // Lowered from 200 to 75 (much more sensitive)
+            if (rms < NOISE_GATE_THRESHOLD) {
+                // Soft gate: squared ratio instead of cubic, making the fade-out less abrupt
+                double factor = (rms / NOISE_GATE_THRESHOLD);
+                factor = factor * factor; 
+                for (int i = 0; i < FRAME_SAMPLES; i++) {
+                    rx_buf[i] = (int16_t)(rx_buf[i] * factor);
+                }
+            }
+
             // Push the 20ms frame to the encoder via Ringbuffer
             xRingbufferSend(pcm_out, rx_buf, FRAME_SIZE_BYTES, portMAX_DELAY);
             
-            // Calculate VU Meter (RMS) every 5 frames (10Hz update rate)
+            // Update VU Meter UI every 5 frames (10Hz update rate)
             if (++frame_count >= 5) {
                 frame_count = 0;
-                double sum_sq = 0.0;
-                for (int i = 0; i < FRAME_SAMPLES; i++) {
-                    double sample = (double)rx_buf[i];
-                    sum_sq += sample * sample;
-                }
-                double rms = sqrt(sum_sq / FRAME_SAMPLES);
-                
                 // Convert to dBFS (max value for int16 is 32768)
                 int db = -60; // default floor
                 if (rms > 0.1) { // Avoid log10(0)
                     db = (int)(20.0 * log10(rms / 32768.0));
                 }
-                
                 ui_set_audio_level(db);
             }
             

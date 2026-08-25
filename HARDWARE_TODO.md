@@ -15,9 +15,11 @@ When your M5Stack M5StickS3 arrives, use this list to pick up right where we lef
 - [x] **Wi-Fi Integration:** Standard ESP-IDF Wi-Fi station code implemented.
   - *Note:* Disabled Power Save (`WIFI_PS_NONE`) and lowered TX power to prevent `errno 118` drops and brownouts on USB power.
 - [x] **ES8311 Register Configuration:** I2C configuration finalized for microphone capture using I2S Mono.
-- [ ] **UI Rendering:** We need to decide if we want to import a full graphics library like LVGL to draw the UI (VU-meters, text, battery icons), or if we want to manually draw rectangles and pixels using the basic `esp_lcd` functions.
-  - *Note:* Backlight is currently disabled to prevent brownouts during intense UDP streaming.
-
+- [ ] **ESP32 LCD UI Rendering:** Implement smart sleep mode (screen pitch black while sleeping), faint red microphone glow when transmitting, and retro-pixel boot screen showing IP/Wi-Fi/Battery.
+- [ ] **Flutter App UI Overhaul:** Implement "Midnight" dark mode with glassmorphism, activity history chart, telemetry dashboard, and animated visual VU meter.
 ## 4. Streaming Validation (Milestone 2)
-- [x] **Test Unencrypted Stream in VLC:** Implemented G.711a (PCMA) conversion and UDP Multicast streaming (port 5004). 
-- [ ] **Fix RTP Playback Issue:** Wait for stream to successfully route into VLC/Wireshark without dropping packets or playing at the wrong speed. The current build reverted to a stable mono capture but requires network debugging.
+- [x] **Test Unencrypted Stream in VLC:** Implemented Opus conversion and UDP Unicast streaming.
+- [x] **Captive Portal Wi-Fi Manager:** Implemented SoftAP fallback, DNS hijacking, and HTTP server for provisioning `ssid` and `pass` into NVS. Solved Header field too long issues. Added "Show Password" button and robust retry/WPA3 support.
+- [x] **Stream Encryption (AES-CTR):** Implemented lightweight AES-128 encryption on the Opus payload only, using SSRC/Sequence/Timestamp as IV, to prevent local eavesdropping. Hardcoded key for now.
+- [x] **Audio Processing:** Implemented software noise gate with RMS sensitivity tuning to silence electrical hiss while allowing baby murmurs to pass.
+- [x] **Battery Management:** Implemented low-battery acoustic alerting (beeps when <= 10%) with a toggle in the Flutter app to disable.

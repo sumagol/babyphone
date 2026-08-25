@@ -287,6 +287,15 @@ void ui_set_wifi_status(bool connected)
     }
 }
 
+void ui_set_provisioning_mode(void)
+{
+    if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+        lv_label_set_text(label_status, "Setup Wi-Fi: Babyphone-Setup");
+        lv_label_set_text(label_ip, "IP: 192.168.4.1");
+        xSemaphoreGive(xGuiSemaphore);
+    }
+}
+
 void ui_set_ip_address(const char* ip)
 {
     if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
