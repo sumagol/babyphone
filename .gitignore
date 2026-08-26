@@ -65,3 +65,4 @@ managed_components/
 /.idea/modules.xml
 /.idea/vcs.xml
 /.vscode/settings.json
+/firmware/sdkconfig.old

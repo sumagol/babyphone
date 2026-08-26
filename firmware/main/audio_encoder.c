@@ -4,6 +4,7 @@
 #include "opus.h"
 #include "sw_i2c.h"
 #include "mbedtls/aes.h"
+#include "ui.h"
 
 static const char *TAG = "audio_encoder";
 
@@ -89,6 +90,9 @@ static void audio_encoder_task(void *args)
                         real_charging = (status == 1 || status == 2 || status == 3);
                     }
                 }
+                
+                // Update UI Battery Level
+                ui_set_battery_level(real_battery);
             }
 
             // Encode the 20ms frame with Opus. Offset by 20 bytes (12 standard + 8 extension)

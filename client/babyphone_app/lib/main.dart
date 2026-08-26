@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pcm_sound/flutter_pcm_sound.dart';
@@ -9,6 +10,7 @@ import 'package:opus_codec_dart/opus_codec_dart.dart';
 import 'package:opus_codec/opus_codec.dart' as opus_codec;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,6 +57,8 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   int _batteryLevel = 100;
   bool _isCharging = false;
   double _currentRms = 0.0;
+  List<FlSpot> _rmsHistory = [];
+  double _timeOffset = 0;
   
   bool _alarmEnabled = true;
   double _beepPhase = 0.0;
@@ -216,6 +220,13 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                   _batteryLevel = batteryPercent;
                   _isCharging = isCharging;
                   _currentRms = _calculateRms(pcmData);
+                  
+                  // Update History Chart
+                  _timeOffset += 1;
+                  _rmsHistory.add(FlSpot(_timeOffset, _currentRms));
+                  if (_rmsHistory.length > 60) {
+                      _rmsHistory.removeAt(0);
+                  }
                 } catch (e) {
                   print("Opus Decode Error: $e");
                   if (mounted) {
@@ -291,7 +302,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-            Icon(icon, color: color),
+            Icon(icon, color: color, size: 20),
             const SizedBox(width: 4),
             Text("$_batteryLevel%", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16)),
         ]
@@ -301,75 +312,198 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Babyphone Receiver'),
-        actions: [
-          if (_isListening)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: _buildBatteryIcon(),
-            )
-        ],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _packetCount > 0 ? Icons.volume_up : Icons.child_care, 
-              size: 100, 
-              color: _currentRms > 0.01 ? Colors.cyanAccent : Colors.cyan
-            ),
-            const SizedBox(height: 30),
-            Text(_statusMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 20),
-            if (_isListening) ...[
-              Text("Opus Packets Decoded: $_packetCount", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green)),
-              const SizedBox(height: 20),
-              const Text("Live Audio VU", style: TextStyle(fontSize: 14, color: Colors.grey)),
-              const SizedBox(height: 8),
-              Container(
-                width: 250,
-                height: 24,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.grey[800],
-                  border: Border.all(color: Colors.grey[700]!),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0a192f), Color(0xFF020c1b)], // Midnight Deep Blue
+          ),
+        ),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              // Top Bar Telemetry
+              if (_isListening)
+                Positioned(
+                  top: 20,
+                  right: 20,
+                  child: GlassContainer(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.wifi, color: Colors.blueAccent, size: 20),
+                          const SizedBox(width: 12),
+                          _buildBatteryIcon(),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: LinearProgressIndicator(
-                    value: (_currentRms * 8).clamp(0.0, 1.0), // Amplify for visual effect
-                    backgroundColor: Colors.transparent,
-                    color: _currentRms > 0.08 ? Colors.redAccent : Colors.greenAccent,
-                    minHeight: 24,
+                
+              // Main Dashboard
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Status Text
+                    Text(
+                      _statusMessage,
+                      style: const TextStyle(color: Colors.white70, fontSize: 16, letterSpacing: 1.2),
+                    ),
+                    const SizedBox(height: 30),
+                    
+                    // History Chart
+                    if (_isListening) ...[
+                      GlassContainer(
+                        width: MediaQuery.of(context).size.width * 0.85,
+                        height: 200,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: LineChart(
+                            LineChartData(
+                              gridData: FlGridData(show: false),
+                              titlesData: FlTitlesData(show: false),
+                              borderData: FlBorderData(show: false),
+                              minX: _timeOffset > 60 ? _timeOffset - 60 : 0,
+                              maxX: _timeOffset > 60 ? _timeOffset : 60,
+                              minY: 0,
+                              maxY: 0.2, // RMS max bounds
+                              lineBarsData: [
+                                LineChartBarData(
+                                  spots: _rmsHistory,
+                                  isCurved: true,
+                                  color: Colors.cyanAccent,
+                                  barWidth: 3,
+                                  isStrokeCapRound: true,
+                                  dotData: FlDotData(show: false),
+                                  belowBarData: BarAreaData(
+                                    show: true,
+                                    color: Colors.cyanAccent.withOpacity(0.2),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+                      
+                      // Live VU Indicator (Glowing Pulsing Circle)
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 100),
+                        width: 100 + (_currentRms * 1000).clamp(0, 100),
+                        height: 100 + (_currentRms * 1000).clamp(0, 100),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _currentRms > 0.01 
+                              ? Colors.cyanAccent.withOpacity(0.8) 
+                              : Colors.cyan.withOpacity(0.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.cyanAccent.withOpacity((_currentRms * 5.0).clamp(0.0, 1.0)),
+                              blurRadius: 30,
+                              spreadRadius: 10,
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Icon(
+                            _packetCount > 0 ? Icons.child_care : Icons.mic_off,
+                            color: Colors.white,
+                            size: 40,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              
+              // Bottom Controls
+              Positioned(
+                bottom: 40,
+                left: 20,
+                right: 20,
+                child: GlassContainer(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Listen / Stop Button
+                        ElevatedButton.icon(
+                          icon: Icon(_isListening ? Icons.stop : Icons.play_arrow, size: 28),
+                          label: Text(
+                            _isListening ? "STOP" : "LISTEN",
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                            backgroundColor: _isListening 
+                                ? Colors.redAccent.withOpacity(0.8) 
+                                : Colors.greenAccent.withOpacity(0.8),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                          onPressed: _isListening ? _stopListening : _startListening,
+                        ),
+                        
+                        // Alarm Toggle
+                        Row(
+                          children: [
+                            const Icon(Icons.notifications_active, color: Colors.white70, size: 20),
+                            const SizedBox(width: 8),
+                            Switch(
+                              value: _alarmEnabled,
+                              activeColor: Colors.cyanAccent,
+                              onChanged: (val) => setState(() => _alarmEnabled = val),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
                   ),
                 ),
               ),
             ],
-            const SizedBox(height: 30),
-            ElevatedButton.icon(
-              icon: Icon(_isListening ? Icons.stop : Icons.play_arrow, size: 40),
-              label: Text(_isListening ? "STOP" : "LISTEN"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-                backgroundColor: _isListening ? Colors.red : Colors.green,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: _isListening ? _stopListening : _startListening,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Glassmorphism Reusable Widget
+class GlassContainer extends StatelessWidget {
+  final Widget child;
+  final double? width;
+  final double? height;
+
+  const GlassContainer({Key? key, required this.child, this.width, this.height}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+        child: Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.1),
+              width: 1.5,
             ),
-            const SizedBox(height: 40),
-            SizedBox(
-              width: 300,
-              child: SwitchListTile(
-                title: const Text('Low Battery Alarm', style: TextStyle(fontSize: 14)),
-                subtitle: const Text('Acoustic beep (< 10%)', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                value: _alarmEnabled,
-                activeColor: Colors.cyanAccent,
-                onChanged: (val) => setState(() => _alarmEnabled = val),
-              ),
-            ),
-          ],
+          ),
+          child: child,
         ),
       ),
     );

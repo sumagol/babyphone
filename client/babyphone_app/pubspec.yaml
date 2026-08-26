@@ -41,6 +41,7 @@ dependencies:
   opus_codec_dart: ^3.0.5
   flutter_pcm_sound: ^3.3.3
   wakelock_plus: ^1.7.0
+  fl_chart: ^0.68.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

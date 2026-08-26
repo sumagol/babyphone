@@ -43,6 +43,18 @@ void ui_set_rssi(int rssi);
  */
 void ui_set_audio_level(int db);
 
+/**
+ * @brief Update the smart sleep state (crying or quiet)
+ * @param crying true if noise gate is open for sustained period
+ */
+void ui_set_smart_sleep_state(bool crying);
+
+/**
+ * @brief Update the battery level text
+ * @param percent Battery percentage (0-100)
+ */
+void ui_set_battery_level(uint8_t percent);
+
 #ifdef __cplusplus
 }
 #endif

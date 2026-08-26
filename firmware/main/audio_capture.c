@@ -38,6 +38,7 @@ static void audio_capture_task(void *args)
 
     size_t bytes_read = 0;
     int frame_count = 0;
+    int noise_frames = 0;
     
     while (1) {
         esp_err_t ret = i2s_channel_read(rx_chan, rx_buf, FRAME_SIZE_BYTES, &bytes_read, portMAX_DELAY);
@@ -64,18 +65,32 @@ static void audio_capture_task(void *args)
                 }
             }
 
+            if (rms >= NOISE_GATE_THRESHOLD) {
+                if (noise_frames < 150) {
+                    noise_frames++;
+                }
+            } else {
+                noise_frames = 0;
+            }
+
             // Push the 20ms frame to the encoder via Ringbuffer
             xRingbufferSend(pcm_out, rx_buf, FRAME_SIZE_BYTES, portMAX_DELAY);
             
-            // Update VU Meter UI every 5 frames (10Hz update rate)
-            if (++frame_count >= 5) {
+            // Update UI
+            if (++frame_count >= 5) { // every 100ms
                 frame_count = 0;
-                // Convert to dBFS (max value for int16 is 32768)
-                int db = -60; // default floor
-                if (rms > 0.1) { // Avoid log10(0)
-                    db = (int)(20.0 * log10(rms / 32768.0));
+                
+                // Calculate dB for VU meter
+                double ref = 32768.0; 
+                double db = (rms > 1.0) ? 20.0 * log10(rms / ref) : -60.0;
+                ui_set_audio_level((int)db);
+
+                // Update Smart Sleep State
+                if (noise_frames >= 150) {
+                    ui_set_smart_sleep_state(true);
+                } else if (noise_frames == 0) {
+                    ui_set_smart_sleep_state(false);
                 }
-                ui_set_audio_level(db);
             }
             
         } else {

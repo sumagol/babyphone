@@ -37,6 +37,25 @@ static lv_obj_t * label_rssi;
 static lv_obj_t * label_uptime;
 static lv_obj_t * bar_vu;
 static lv_obj_t * label_db;
+static lv_obj_t * label_battery;
+static lv_obj_t * smart_sleep_overlay;
+
+static bool is_crying = false;
+
+static void update_sleep_ui(void) {
+    if (is_screen_off) {
+        if (is_crying) {
+            lv_obj_clear_flag(smart_sleep_overlay, LV_OBJ_FLAG_HIDDEN);
+            hw_display_set_backlight(15);
+        } else {
+            lv_obj_add_flag(smart_sleep_overlay, LV_OBJ_FLAG_HIDDEN);
+            hw_display_set_backlight(0);
+        }
+    } else {
+        lv_obj_add_flag(smart_sleep_overlay, LV_OBJ_FLAG_HIDDEN);
+        hw_display_set_backlight(50);
+    }
+}
 
 static void my_flush_ready_cb(void) {
     lv_disp_flush_ready(&disp_drv);
@@ -66,8 +85,11 @@ static void handle_button_press(void)
     
     if (is_screen_off) {
         ESP_LOGI(TAG, "Waking up screen");
-        hw_display_set_backlight(50);
         is_screen_off = false;
+        if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+            update_sleep_ui();
+            xSemaphoreGive(xGuiSemaphore);
+        }
     } else {
         current_page = (current_page + 1) % TOTAL_PAGES;
         if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
@@ -102,9 +124,12 @@ static void gui_task(void *arg)
         
         uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
         if (!is_screen_off && (current_time - last_activity_time > TIMEOUT_MS)) {
-            ESP_LOGI(TAG, "Screen timeout, turning off backlight");
-            hw_display_set_backlight(0);
+            ESP_LOGI(TAG, "Screen timeout, engaging Smart Sleep mode");
             is_screen_off = true;
+            if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+                update_sleep_ui();
+                xSemaphoreGive(xGuiSemaphore);
+            }
         }
 
         int btn_state = gpio_get_level(BTN_PIN);
@@ -157,6 +182,11 @@ static void build_ui(void)
     lv_label_set_text(label_title, "BABYPHONE");
     lv_obj_set_style_text_color(label_title, lv_color_hex(0x00FFFF), LV_PART_MAIN); // Cyan title
     lv_obj_align(label_title, LV_ALIGN_TOP_MID, 0, 20);
+
+    label_battery = lv_label_create(tile1);
+    lv_label_set_text(label_battery, "100%");
+    lv_obj_set_style_text_color(label_battery, lv_color_hex(0x00FF00), LV_PART_MAIN);
+    lv_obj_align(label_battery, LV_ALIGN_TOP_RIGHT, -5, 5);
 
     label_status = lv_label_create(tile1);
     lv_label_set_long_mode(label_status, LV_LABEL_LONG_SCROLL_CIRCULAR); 
@@ -225,6 +255,20 @@ static void build_ui(void)
     lv_label_set_text(label_codec, "OPUS 24kbps");
     lv_obj_set_style_text_color(label_codec, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
     lv_obj_align(label_codec, LV_ALIGN_BOTTOM_MID, 0, -20);
+
+    // --- Smart Sleep Overlay ---
+    smart_sleep_overlay = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(smart_sleep_overlay, 135, 240);
+    lv_obj_set_style_bg_color(smart_sleep_overlay, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(smart_sleep_overlay, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(smart_sleep_overlay, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(smart_sleep_overlay, 0, LV_PART_MAIN);
+    lv_obj_add_flag(smart_sleep_overlay, LV_OBJ_FLAG_HIDDEN); // Hidden by default
+
+    lv_obj_t * label_rec = lv_label_create(smart_sleep_overlay);
+    lv_label_set_text(label_rec, "[ REC ]");
+    lv_obj_set_style_text_color(label_rec, lv_color_hex(0xFF0000), LV_PART_MAIN);
+    lv_obj_align(label_rec, LV_ALIGN_CENTER, 0, 0);
 }
 
 esp_err_t ui_init(void)
@@ -344,6 +388,34 @@ void ui_set_audio_level(int db)
             lv_obj_set_style_bg_color(bar_vu, lv_color_hex(0x00FF00), LV_PART_INDICATOR); // Green
         }
         
+        xSemaphoreGive(xGuiSemaphore);
+    }
+}
+
+void ui_set_smart_sleep_state(bool crying)
+{
+    if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (is_crying != crying) {
+            is_crying = crying;
+            update_sleep_ui();
+        }
+        xSemaphoreGive(xGuiSemaphore);
+    }
+}
+
+void ui_set_battery_level(uint8_t percent)
+{
+    if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (percent > 100) percent = 100;
+        lv_label_set_text_fmt(label_battery, "%d%%", percent);
+        
+        if (percent > 50) {
+            lv_obj_set_style_text_color(label_battery, lv_color_hex(0x00FF00), LV_PART_MAIN); // Green
+        } else if (percent > 20) {
+            lv_obj_set_style_text_color(label_battery, lv_color_hex(0xFFFF00), LV_PART_MAIN); // Yellow
+        } else {
+            lv_obj_set_style_text_color(label_battery, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red
+        }
         xSemaphoreGive(xGuiSemaphore);
     }
 }

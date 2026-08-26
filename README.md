@@ -69,28 +69,28 @@ The display operates in landscape orientation ($240 	imes 135	ext{ px}$) or vert
 ```text
 Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio)
 ┌────────────────┐       ┌────────────────┐     ┌────────────────┐
-│   BABYPHONE    │       │   TARGET IP    │     │   AUDIO (VU)   │
+│ BATTERY: 85%   │       │   TARGET IP    │     │   AUDIO (VU)   │
 │                │       │                │     │                │
 │                │       │                │     │                │
-│                │       │                │     │  [██████░░░░]  │
-│  [● REC] LIVE  │   →   │  239.255.0.1   │  →  │                │
-│                │       │   Port 5004    │     │     -18 dB     │
-│                │       │                │     │                │
-│ WiFi: -58 dBm  │       │                │     │                │
-│ UPTIME: 02h:14m│       │ LOCAL IP: ...  │     │  OPUS 24kbps   │
+│  [● REC] LIVE  │   →   │  239.255.0.1   │  →  │  [██████░░░░]  │
+│                │       │   Port 5004    │     │                │
+│                │       │                │     │     -18 dB     │
+│ WiFi: -58 dBm  │       │ LOCAL IP: ...  │     │                │
+│ UPTIME: 02h:14m│       │                │     │  OPUS 24kbps   │
 └────────────────┘       └────────────────┘     └────────────────┘
 ```
 
 ### 4.2 UI Elements & Color Coding
-* **Stream & Security Indicator:** Green dot `[● REC]` when audio is actively captured and streamed; Lock icon `[🔒 SRTP]` indicating AES-128 encryption.
-* **Network & Multicast Info:** Explicitly displays the target IGMP group `239.255.0.1:5004` so any device in the house can be configured instantly without checking documentation.
+* **Battery & Power Telemetry:** PMIC hardware is polled (AXP192 / AXP2101 / M5PM1) and actual battery percentage is displayed on the main UI. This data is also pushed via RTP extension headers to the mobile app.
+* **Stream & Security Indicator:** Green dot `[● REC]` when audio is actively captured and streamed.
 * **Dynamic Audio VU-Meter:**
   * `< -30 dB` (Green): Normal nursery background noise / silence.
   * `-30 dB to -15 dB` (Yellow): Baby stirring, breathing sounds, light rustling.
   * `> -15 dB` (Red): Crying / loud disturbance.
-* **Nursery Night-Mode (Auto-Dimming):**
-  * Display backlight auto-dims to **0% (Off)** or **5%** after 30 seconds of quiet.
-  * **Wake Triggers:** Front button press (`BTN_A`) or automatic display wake-up when audio level crosses threshold (e.g. `> -18 dB`).
+* **Smart Sleep Mode v2 (Nursery Night-Mode):**
+  * **60-Second Timeout:** The display backlight auto-dims to **0% (Pitch Black)** after 60 seconds of inactivity to keep the nursery completely dark.
+  * **Noise Wake (Debounced):** If the baby cries continuously for **3 seconds** (150 frames > noise gate threshold), a faint dark red `[ REC ]` overlay illuminates the screen to confirm transmission. If the noise stops, it goes back to pitch black.
+  * **Manual Wake:** Pressing the front button (`BTN_A`) instantly drops the sleep overlay and restores the rich 3-page UI for another 60 seconds.
 * **Refresh Rate:** Low UI refresh rate (**5–10 Hz**) to prevent SPI bus starvation and keep Core 1 free for Opus DSP.
 
 ---
@@ -147,6 +147,7 @@ Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio)
    * Computes peak/RMS level and sends metric to UI task.
    * Encodes raw PCM to Opus frame (40–80 bytes at 16–24 kbps, VBR).
    * Constructs 12-byte RTP Header (`Payload Type 96`, incrementing Sequence Number and Timestamp `+= 960`).
+   * Appends an 8-byte RTP Extension Header (Profile `0xBABB`) packing PMIC Battery Level and Charging State.
 4. **SRTP Network Task:**
    * Encrypts payload with `libsrtp` (`AES_CM_128_HMAC_SHA1_80`) using Pre-Shared Key + Salt.
    * Transmits via BSD UDP Socket to multicast group `239.255.0.1:5004`.
@@ -198,6 +199,9 @@ gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
 
 ## 7. Software Architecture: Flutter Client (Android)
 
+build command: `~/.local/flutter/bin/flutter build apk --release --split-per-abi`
+
+
 ### 7.1 Low-Level Networking Requirements
 1. **Multicast Lock & Wake Lock:**
    * Android drops multicast packets in doze/screen-off mode.
@@ -228,19 +232,18 @@ gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
 
 ## 8. Implementation Roadmap & Milestones
 
-- [ ] **Milestone 1: Toolchain, ES8311 & Display Bring-up**
+- [x] **Milestone 1: Toolchain, ES8311 & Display Bring-up**
   - [x] Configure ESP-IDF project for ESP32-S3 with native USB-CDC.
   - [x] Initialize I2C and configure ES8311 codec registers (Drafted).
   - [x] Initialize ST7789 LCD driver; display IP, Wi-Fi RSSI, and dynamic audio VU-meter bar (Drafted).
-- [ ] **Milestone 2: Unencrypted Multicast & VLC Validation**
+- [x] **Milestone 2: Unencrypted Multicast & VLC Validation**
   - [x] Integrate `libopus` encoder into firmware.
   - [x] Stream unencrypted RTP/Opus to `239.255.0.1:5004`.
-  - [ ] Verify playback and latency with VLC (`RTP/AVP`).
-- [ ] **Milestone 3: SRTP Encryption (Pre-Shared Key)**
-  - [ ] Integrate `libsrtp` on ESP32-S3 using hardware AES acceleration.
-  - [ ] Validate encrypted playback with `babyphone.sdp` in VLC (`RTP/SAVP`).
-- [ ] **Milestone 4: Flutter Android Client**
-  - [ ] Implement Kotlin Foreground Service with `MulticastLock`.
-  - [ ] Build Dart FFI pipeline (SRTP decrypt -> Opus decode -> AudioTrack playback).
-  - [ ] Add background listening, audio level VU-meter, and threshold notification alerts.
-  - 
+  - [x] Verify playback and latency with VLC (`RTP/AVP`).
+- [x] **Milestone 3: Stream Encryption**
+  - [x] Integrate `mbedtls` on ESP32-S3 for custom AES-128-CTR payload encryption.
+  - [x] Validate decrypted playback.
+- [x] **Milestone 4: Flutter Android Client**
+  - [x] Implement `MulticastLock` and Wakelock for background listening.
+  - [x] Build Dart pipeline (AES-CTR decrypt -> Opus decode -> PCM playback).
+  - [x] Add Midnight Glassmorphism UI, audio level VU-meter, history chart, and low battery acoustic alerts.

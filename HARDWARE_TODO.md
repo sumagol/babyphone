@@ -15,8 +15,8 @@ When your M5Stack M5StickS3 arrives, use this list to pick up right where we lef
 - [x] **Wi-Fi Integration:** Standard ESP-IDF Wi-Fi station code implemented.
   - *Note:* Disabled Power Save (`WIFI_PS_NONE`) and lowered TX power to prevent `errno 118` drops and brownouts on USB power.
 - [x] **ES8311 Register Configuration:** I2C configuration finalized for microphone capture using I2S Mono.
-- [ ] **ESP32 LCD UI Rendering:** Implement smart sleep mode (screen pitch black while sleeping), faint red microphone glow when transmitting, and retro-pixel boot screen showing IP/Wi-Fi/Battery.
-- [ ] **Flutter App UI Overhaul:** Implement "Midnight" dark mode with glassmorphism, activity history chart, telemetry dashboard, and animated visual VU meter.
+- [x] **ESP32 LCD UI Rendering:** Implement smart sleep mode (screen pitch black while sleeping), faint red microphone glow when transmitting, and retro-pixel boot screen showing IP/Wi-Fi/Battery.
+- [x] **Flutter App UI Overhaul:** Implement "Midnight" dark mode with glassmorphism, activity history chart, telemetry dashboard, and animated visual VU meter.
 ## 4. Streaming Validation (Milestone 2)
 - [x] **Test Unencrypted Stream in VLC:** Implemented Opus conversion and UDP Unicast streaming.
 - [x] **Captive Portal Wi-Fi Manager:** Implemented SoftAP fallback, DNS hijacking, and HTTP server for provisioning `ssid` and `pass` into NVS. Solved Header field too long issues. Added "Show Password" button and robust retry/WPA3 support.
