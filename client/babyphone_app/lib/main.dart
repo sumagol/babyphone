@@ -11,6 +11,7 @@ import 'package:opus_codec/opus_codec.dart' as opus_codec;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,6 +65,17 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   double _beepPhase = 0.0;
   int _beepSampleCounter = 0;
   
+  Timer? _autoStopTimer;
+  bool _isWifiConnected = true;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  
+  void _resetAutoStopTimer() {
+    _autoStopTimer?.cancel();
+    _autoStopTimer = Timer(const Duration(minutes: 5), () {
+      SystemNavigator.pop();
+    });
+  }
+  
   RawDatagramSocket? _socket;
   Timer? _uiTimer;
   Timer? _igmpRefreshTimer;
@@ -74,9 +86,37 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   void initState() {
     super.initState();
     _acquireMulticastLock();
+    _resetAutoStopTimer();
+    
+    _initConnectivity();
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen(_updateConnectionStatus);
+    
     _uiTimer = Timer.periodic(const Duration(milliseconds: 60), (timer) {
       if (mounted && _isListening) {
         setState(() {}); // trigger rebuild to show UI changes smoothly
+      }
+    });
+  }
+
+  Future<void> _initConnectivity() async {
+    late List<ConnectivityResult> result;
+    try {
+      result = await Connectivity().checkConnectivity();
+    } on PlatformException catch (e) {
+      print('Couldn\'t check connectivity status: $e');
+      return;
+    }
+    if (!mounted) return;
+    _updateConnectionStatus(result);
+  }
+
+  void _updateConnectionStatus(List<ConnectivityResult> result) {
+    bool hasWifi = result.contains(ConnectivityResult.wifi) || result.contains(ConnectivityResult.ethernet);
+    setState(() {
+      _isWifiConnected = hasWifi;
+      if (!_isWifiConnected && _isListening) {
+        _stopListening();
+        _statusMessage = "Wi-Fi disconnected. Stopped.";
       }
     });
   }
@@ -120,6 +160,9 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   }
 
   Future<void> _startListening() async {
+    if (_isListening) return;
+    
+    _autoStopTimer?.cancel();
     setState(() {
       _statusMessage = "Initializing Audio Pipeline...";
     });
@@ -188,7 +231,8 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                   ivBytes[4] = d.data[2];  ivBytes[5] = d.data[3];
                   ivBytes[6] = d.data[4];  ivBytes[7] = d.data[5];  ivBytes[8] = d.data[6];  ivBytes[9] = d.data[7];
 
-                  final key = encrypt.Key.fromUtf8("BabyPhoneKey2026");
+                  const String envKey = String.fromEnvironment('AES_KEY', defaultValue: 'BabyPhoneKey2026');
+                  final key = encrypt.Key.fromUtf8(envKey);
                   final iv = encrypt.IV(ivBytes);
                   final encrypter = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.ctr, padding: null));
                   
@@ -264,6 +308,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
 
   void _stopListening() {
     WakelockPlus.disable();
+    _resetAutoStopTimer();
     _igmpRefreshTimer?.cancel();
     _socket?.close();
     _socket = null;
@@ -279,6 +324,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
 
   @override
   void dispose() {
+    _connectivitySubscription?.cancel();
     _uiTimer?.cancel();
     _stopListening();
     super.dispose();
@@ -444,13 +490,13 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                             backgroundColor: _isListening 
                                 ? Colors.redAccent.withOpacity(0.8) 
-                                : Colors.greenAccent.withOpacity(0.8),
+                                : (_isWifiConnected ? Colors.greenAccent.withOpacity(0.8) : Colors.grey.withOpacity(0.5)),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(20),
                             ),
                           ),
-                          onPressed: _isListening ? _stopListening : _startListening,
+                          onPressed: (_isListening || _isWifiConnected) ? (_isListening ? _stopListening : _startListening) : null,
                         ),
                         
                         // Alarm Toggle

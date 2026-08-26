@@ -20,10 +20,10 @@ static void audio_encoder_task(void *args)
 {
     ESP_LOGI(TAG, "Audio encoder task started on core %d (Opus)", xPortGetCoreID());
 
-    // Initialize AES-128-CTR with static key
+    // Initialize AES-128-CTR with dynamic macro key
     mbedtls_aes_context aes;
     mbedtls_aes_init(&aes);
-    const unsigned char key[16] = "BabyPhoneKey2026"; // Exactly 16 bytes
+    const unsigned char key[17] = AES_KEY; // Exactly 16 bytes + null terminator
     mbedtls_aes_setkey_enc(&aes, key, 128);
 
     int err;
@@ -58,7 +58,6 @@ static void audio_encoder_task(void *args)
             // Read real PMIC values every 5 seconds (250 frames)
             if (frame_count % 250 == 0) {
                 uint8_t bat_l = 0, bat_h = 0;
-                uint8_t pwr_src = 2; // Default to battery
                 
                 // Read from M5PM1 (0x6E)
                 if (sw_i2c_read_reg(0x6E, 0x22, &bat_l) && sw_i2c_read_reg(0x6E, 0x23, &bat_h)) {

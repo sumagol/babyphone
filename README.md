@@ -149,8 +149,18 @@ Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio)
    * Constructs 12-byte RTP Header (`Payload Type 96`, incrementing Sequence Number and Timestamp `+= 960`).
    * Appends an 8-byte RTP Extension Header (Profile `0xBABB`) packing PMIC Battery Level and Charging State.
 4. **SRTP Network Task:**
-   * Encrypts payload with `libsrtp` (`AES_CM_128_HMAC_SHA1_80`) using Pre-Shared Key + Salt.
+   * Encrypts Opus payload with `AES-128-CTR` using a Pre-Shared Key loaded from `babyphone_key.env`.
    * Transmits via BSD UDP Socket to multicast group `239.255.0.1:5004`.
+
+### 5.3 Encryption Key Management (.env)
+To prevent hardcoding secrets into Git, the project uses a single shared `.env` file across the C firmware, Flutter app, and Python receiver.
+1. Create a file named `babyphone_key.env` in the root of the repository.
+2. Add the following line with exactly 16 characters for the key:
+   `AES_KEY=BabyPhoneKey2026`
+   
+- **Firmware:** CMake reads this file during `idf.py build` and injects it into `audio_encoder.c`.
+- **Flutter:** Pass it during compilation using: `flutter build apk --dart-define-from-file=../../babyphone_key.env`
+- **Python:** The script reads the file dynamically at runtime.
 
 ### 5.2 Logging, Flash Wear & Reliability Constraints
 * **Zero Flash Logging:** No runtime logging to SPIFFS/NVS/LittleFS during streaming.

@@ -66,3 +66,4 @@ managed_components/
 /.idea/vcs.xml
 /.vscode/settings.json
 /firmware/sdkconfig.old
+/babyphone_key.env

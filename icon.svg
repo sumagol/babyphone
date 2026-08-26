@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Dark Tech Gradient Background -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090E17"/>
+      <stop offset="100%" stop-color="#172554"/>
+    </linearGradient>
+    
+    <!-- Neon Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- App Icon Background -->
+  <rect width="1024" height="1024" rx="225" fill="url(#bg)"/>
+
+  <!-- ========================================== -->
+  <!-- THE ETHERNET PACIFIER                      -->
+  <!-- ========================================== -->
+
+  <!-- 1. RJ45 Teat (Mundstück) -->
+  <rect x="402" y="190" width="220" height="280" rx="20" fill="#1E293B" fill-opacity="0.6" stroke="#22D3EE" stroke-width="16" filter="url(#glow)"/>
+  
+  <!-- RJ45 Clip (Rastnase rechts) -->
+  <path d="M 622 420 L 700 330 L 700 250 L 622 280" fill="none" stroke="#22D3EE" stroke-width="16" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)"/>
+
+  <!-- 8 Gold Pins (Kontakte im Stecker) -->
+  <rect x="422" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+  <rect x="446" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+  <rect x="470" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+  <rect x="494" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+  <rect x="518" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+  <rect x="542" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+  <rect x="566" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+  <rect x="590" y="190" width="12" height="60" rx="4" fill="#FBBF24" />
+
+  <!-- 2. Pacifier Shield (Schnullerschild) -->
+  <ellipse cx="512" cy="470" rx="320" ry="70" fill="#0B1120" stroke="#22D3EE" stroke-width="16" filter="url(#glow)"/>
+  
+  <!-- Network Nodes auf dem Schild (Ethernet-Look) -->
+  <circle cx="280" cy="470" r="16" fill="#22D3EE" filter="url(#glow)"/>
+  <circle cx="744" cy="470" r="16" fill="#22D3EE" filter="url(#glow)"/>
+
+  <!-- 3. Cable Boot (Knickschutz unter dem Schild) -->
+  <rect x="452" y="540" width="120" height="70" rx="12" fill="#0B1120" stroke="#22D3EE" stroke-width="16" filter="url(#glow)"/>
+  <line x1="454" y1="565" x2="570" y2="565" stroke="#22D3EE" stroke-width="8" filter="url(#glow)"/>
+  <line x1="454" y1="585" x2="570" y2="585" stroke="#22D3EE" stroke-width="8" filter="url(#glow)"/>
+
+  <!-- 4. Cable Ring (Ethernet-Kabel als Schnullergriff) -->
+  <path d="M 470 610 C 300 630, 300 840, 512 840 C 724 840, 724 630, 554 610" fill="none" stroke="#22D3EE" stroke-width="24" stroke-linecap="round" filter="url(#glow)"/>
+  
+</svg>

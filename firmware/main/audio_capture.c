@@ -94,7 +94,7 @@ static void audio_capture_task(void *args)
             }
             
         } else {
-            ESP_LOGE(TAG, "I2S read failed: %d, bytes_read: %d", ret, bytes_read);
+            ESP_LOGE(TAG, "I2S read failed: %d, bytes_read: %zu", ret, bytes_read);
             vTaskDelay(pdMS_TO_TICKS(10)); // Prevent watchdog/starvation if I2S is returning immediately
         }
     }

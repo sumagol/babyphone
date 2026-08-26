@@ -1,8 +1,5 @@
-#include <stdio.h>
-#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "driver/gpio.h"
 
 #include "hw_codec.h"
 #include "hw_display.h"
@@ -11,10 +8,6 @@
 #include "audio_encoder.h"
 #include "network_tx.h"
 #include "wifi_manager.h"
-#include "esp_wifi.h"
-#include "nvs_flash.h"
-#include "esp_netif.h"
-#include "esp_event.h"
 #include "freertos/event_groups.h"
 
 static const char *TAG = "babyphone_main";
