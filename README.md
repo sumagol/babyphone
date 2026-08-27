@@ -209,9 +209,6 @@ gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
 
 ## 7. Software Architecture: Flutter Client (Android)
 
-build command: `~/.local/flutter/bin/flutter build apk --release --split-per-abi`
-
-
 ### 7.1 Low-Level Networking Requirements
 1. **Multicast Lock & Wake Lock:**
    * Android drops multicast packets in doze/screen-off mode.
@@ -257,3 +254,66 @@ build command: `~/.local/flutter/bin/flutter build apk --release --split-per-abi
   - [x] Implement `MulticastLock` and Wakelock for background listening.
   - [x] Build Dart pipeline (AES-CTR decrypt -> Opus decode -> PCM playback).
   - [x] Add Midnight Glassmorphism UI, audio level VU-meter, history chart, and low battery acoustic alerts.
+
+---
+
+## 9. Development Environment Setup
+
+### 9.1 ESP32 Firmware Setup (ESP-IDF)
+To compile and flash the firmware to the M5StickS3:
+
+1. **Install ESP-IDF (if not already installed):**
+   ```bash
+   mkdir -p ~/esp
+   cd ~/esp
+   git clone -b v5.1.2 --recursive https://github.com/espressif/esp-idf.git
+   cd ~/esp/esp-idf
+   ./install.sh esp32s3
+   ```
+
+2. **Initialize the ESP-IDF Environment:**
+   Run this in every new terminal session before compiling:
+   ```bash
+   . ~/esp/esp-idf/export.sh
+   ```
+
+3. **Find the correct USB TTY Port:**
+   Plug in the device and monitor kernel logs:
+   ```bash
+   sudo dmesg -w | grep "tty"
+   ```
+   *(Look for something like `ttyACM0` or `ttyACM1`)*
+
+4. **Compile, Flash, and Monitor:**
+   If the port is busy or blocked, you can kill the locking process and flash in one line:
+   ```bash
+   fuser -k /dev/ttyACM1 ; . ~/esp/esp-idf/export.sh && idf.py -p /dev/ttyACM1 flash monitor
+   ```
+   *(Change `/dev/ttyACM1` to match your actual port from step 2)*
+
+### 9.2 Flutter Client Setup
+To compile the Android App:
+
+1. **Install Flutter SDK (if not already installed):**
+   ```bash
+   mkdir -p ~/.local
+   cd ~/.local
+   wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.24.0-stable.tar.xz
+   tar xf flutter_linux_3.24.0-stable.tar.xz
+   rm flutter_linux_3.24.0-stable.tar.xz
+   ```
+   *Optional: Add `export PATH="$PATH:$HOME/.local/flutter/bin"` to your `~/.bashrc` or `~/.zshrc`.*
+
+2. **Install Dependencies:**
+   Ensure Flutter is installed and run:
+   ```bash
+   ~/.local/flutter/bin/flutter pub get
+   ```
+
+3. **Build the APK:**
+   To build a release APK separated by architecture (which reduces the file size) and inject the AES key from your `.env` file:
+   ```bash
+   cd client/babyphone_app
+   ~/.local/flutter/bin/flutter build apk --release --split-per-abi --dart-define-from-file=../../babyphone_key.env
+   ```
+   The built APKs will be located in `build/app/outputs/flutter-apk/`.
