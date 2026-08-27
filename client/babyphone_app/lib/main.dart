@@ -114,9 +114,15 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     bool hasWifi = result.contains(ConnectivityResult.wifi) || result.contains(ConnectivityResult.ethernet);
     setState(() {
       _isWifiConnected = hasWifi;
-      if (!_isWifiConnected && _isListening) {
-        _stopListening();
-        _statusMessage = "Wi-Fi disconnected. Stopped.";
+      if (!_isWifiConnected) {
+        if (_isListening) {
+          _stopListening();
+        }
+        _statusMessage = "Enable WLAN";
+      } else {
+        if (_statusMessage == "Enable WLAN" || _statusMessage == "Wi-Fi disconnected. Stopped.") {
+          _statusMessage = "Multicast Lock Acquired.";
+        }
       }
     });
   }
@@ -126,7 +132,9 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     try {
       await platform.invokeMethod('acquireMulticastLock');
       setState(() {
-        _statusMessage = "Multicast Lock Acquired.";
+        if (_isWifiConnected) {
+          _statusMessage = "Multicast Lock Acquired.";
+        }
       });
     } on PlatformException catch (e) {
       setState(() {

@@ -13,6 +13,20 @@ except ImportError:
     sys.exit(1)
 
 import os
+import argparse
+import fcntl
+
+def get_ip_address(ifname):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        return socket.inet_ntoa(fcntl.ioctl(
+            s.fileno(),
+            0x8915,  # SIOCGIFADDR
+            struct.pack('256s', ifname[:15].encode('utf-8'))
+        )[20:24])
+    except Exception as e:
+        print(f"Error getting IP for interface {ifname}: {e}")
+        sys.exit(1)
 
 MULTICAST_GROUP = '239.255.0.1'
 PORT = 5004
@@ -32,18 +46,39 @@ def load_key_from_env():
 KEY = load_key_from_env()
 
 def main():
+    parser = argparse.ArgumentParser(description="Babyphone Receiver")
+    parser.add_argument("--iface", default=None, help="Network interface name (e.g., enp195s0f0 or wlan0)")
+    args = parser.parse_args()
+
     # 1. Setup UDP Multicast Socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('', PORT))
+    if hasattr(socket, 'SO_REUSEPORT'):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
+    try:
+        sock.bind((MULTICAST_GROUP, PORT))
+    except OSError:
+        sock.bind(('', PORT))
     
     # Join Multicast Group
     group = socket.inet_aton(MULTICAST_GROUP)
-    mreq = struct.pack('4sL', group, socket.INADDR_ANY)
+    
+    if args.iface:
+        iface_ip = get_ip_address(args.iface)
+        iface_aton = socket.inet_aton(iface_ip)
+    else:
+        iface_aton = socket.INADDR_ANY
+        
+    mreq = struct.pack('4s4s', group, iface_aton)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
     print(f"[*] Listening for Babyphone stream on {MULTICAST_GROUP}:{PORT}...")
+    if args.iface:
+        print(f"[*] Bound to specific interface: {args.iface} (IP: {iface_ip})")
+
     print("[*] Launching GStreamer for audio playback...")
+    print("[*] No stream received yet? verify your iptables!")
 
     # 2. Setup GStreamer Subprocess
     # We pipe the unencrypted RTP packets into GStreamer via stdin (fdsrc)
@@ -58,12 +93,18 @@ def main():
         "!", "pulsesink"
     ]
     
-    process = subprocess.Popen(gst_cmd, stdin=subprocess.PIPE)
+    import sys
+    process = subprocess.Popen(gst_cmd, stdin=subprocess.PIPE, stderr=sys.stderr)
 
+    packet_count = 0
     try:
         while True:
             # Receive UDP packet
             data, addr = sock.recvfrom(2048)
+            
+            if packet_count == 0:
+                print(f"[DEBUG] Received first raw UDP packet of {len(data)} bytes from {addr}!")
+
             if len(data) < 12:
                 continue
 
@@ -99,6 +140,12 @@ def main():
             # 7. Pipe to GStreamer
             process.stdin.write(unencrypted_rtp)
             process.stdin.flush()
+            
+            packet_count += 1
+            if packet_count == 1:
+                print(f"[*] Received first packet successfully!")
+            elif packet_count % 50 == 0:
+                print(f"[*] Successfully decrypted and piped {packet_count} audio frames...")
             
     except KeyboardInterrupt:
         print("\n[*] Stopping Babyphone Receiver...")
