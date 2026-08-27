@@ -5,6 +5,14 @@ This document specifies the technical architecture, pinouts, display UX design, 
 
 The system bypasses heavy application-layer protocols (WebRTC, SIP, Cloud WebSockets) in favor of **L2/L3 UDP Multicast (IGMP) with SRTP (Static Pre-Shared Key / SDES) and Opus audio encoding**.
 
+Why Multicast Babyphone? 
+* **Reduced Latency:** Multicast reduces the number of hops required for audio transmission, resulting in lower latency compared to unicast methods.
+* **Scalability:** Multicast allows for easy expansion to support multiple receivers without increasing the number of sender devices.
+* **Efficient Resource Utilization:** By using multicast, the system can efficiently use network resources, reducing the overall bandwidth required for audio transmission.
+* **Privacy and Resilience:** Multicast Babyphone operates entirely on the local network, ensuring maximum privacy and resilience against WAN outages.
+* **network coverage:** W-LAN and Cable bound are setup in my home network on all floors, while other network coverage options may vary depending on the user's specific setup.
+* **Reliability:** Multicast Babyphone is designed to be reliable and robust, ensuring consistent audio transmission even in challenging network conditions.
+
 ### Key System Characteristics:
 * **Dedicated Hardware Platform:** M5Stack M5StickS3 (ESP32-S3, ES8311 low-noise audio codec + high-SNR MEMS mic, 8MB PSRAM, integrated enclosure, internal battery backup).
 * **Stateless Broadcast Sender:** On boot, the device connects to Wi-Fi, initializes the ES8311 codec via I2C, starts I2S DMA capture, encodes to Opus, and streams SRTP packets to multicast group `239.255.0.1:5004`.
