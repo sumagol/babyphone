@@ -1,3 +1,5 @@
+#include <stddef.h>
+#include <stdint.h>
 #pragma once
 
 #include "freertos/FreeRTOS.h"

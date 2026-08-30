@@ -349,3 +349,13 @@ If you want to keep IGMP Snooping enabled (e.g., you have heavy IPTV traffic on 
    - **Query Response Interval:** Lower from `10.00` to `2.00` (must always be smaller than the Query Interval; 2–5 seconds is ideal).
    - **Querier Interval:** Set to around `45.00` (usually 2 × Query Interval + ½ Response Interval).
    - **Membership Interval:** Set to around `45.00` (usually matches Querier Interval).
+
+### Fixing 5-Minute Screen-Off Dropouts (Android)
+If the audio stream completely drops exactly 5 minutes after you lock your phone screen, Android's "Doze" mode is forcefully putting the app to sleep. Because the app sleeps, it stops sending the 30-second IGMP Keep-Alives, and the router stops forwarding the multicast stream to your phone.
+
+To fix this without implementing a Foreground Service, simply tell Android to not optimize this app:
+1. Long-press the Babyphone app icon and tap **App Info** (or go to Android **Settings** -> **Apps** -> **Babyphone App**).
+2. Tap on **Battery** (or "App battery usage").
+3. Change the setting to **Unrestricted** (or "Don't optimize").
+
+This allows the app to honor the internal WakeLocks and continuously receive the stream in the background!

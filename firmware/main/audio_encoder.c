@@ -94,6 +94,20 @@ static void audio_encoder_task(void *args)
                 ui_set_battery_level(real_battery);
             }
 
+            // --- Noise Gate ---
+            // Calculate Mean Square to determine volume
+            int64_t sum_sq = 0;
+            for (int i = 0; i < FRAME_SAMPLES; i++) {
+                sum_sq += pcm_frame[i] * pcm_frame[i];
+            }
+            uint32_t mean_sq = sum_sq / FRAME_SAMPLES;
+            
+            // If the volume is below the "barrier" threshold, mute the frame to kill white noise
+            // Threshold of 10000 (RMS ~100) is a good starting point for high-gain mic noise
+            if (mean_sq < 10000) {
+                memset(pcm_frame, 0, FRAME_SAMPLES * sizeof(int16_t));
+            }
+
             // Encode the 20ms frame with Opus. Offset by 20 bytes (12 standard + 8 extension)
             int nbBytes = opus_encode(encoder, pcm_frame, FRAME_SAMPLES, enc_buffer + 20, MAX_PAYLOAD_BYTES);
             
