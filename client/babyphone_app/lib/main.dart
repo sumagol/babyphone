@@ -64,6 +64,8 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   bool _alarmEnabled = true;
   double _beepPhase = 0.0;
   int _beepSampleCounter = 0;
+  DateTime _lastPacketTime = DateTime.now();
+  Timer? _noPacketAlarmTimer;
   
   Timer? _autoStopTimer;
   bool _isWifiConnected = true;
@@ -192,6 +194,39 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
         _isListening = true;
         _packetCount = 0;
         _statusMessage = "Listening & Decoding Audio...";
+        _lastPacketTime = DateTime.now();
+      });
+
+      _noPacketAlarmTimer?.cancel();
+      _noPacketAlarmTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+        if (!mounted || !_isListening) return;
+        
+        if (DateTime.now().difference(_lastPacketTime).inMilliseconds > 3000) {
+          // No packets received for 3 seconds
+          if (_statusMessage != "Connection Lost. Waiting for stream...") {
+             setState(() {
+               _statusMessage = "Connection Lost. Waiting for stream...";
+               _currentRms = 0.0;
+             });
+          }
+          
+          List<int> pcmData = List.filled(2400, 0); // 50ms of audio at 48000Hz
+          if (_alarmEnabled) {
+            _beepSampleCounter += 2400;
+            // Play a 0.5s beep every 3 seconds (48000 * 3 = 144000)
+            if ((_beepSampleCounter % 144000) < 24000) {
+              for (int i = 0; i < pcmData.length; i++) {
+                double sample = sin(_beepPhase) * 16000.0;
+                _beepPhase += 2 * pi * 440.0 / 48000.0;
+                if (_beepPhase > 2 * pi) _beepPhase -= 2 * pi;
+                pcmData[i] = sample.toInt();
+              }
+            } else {
+              _beepPhase = 0.0;
+            }
+          }
+          FlutterPcmSound.feed(PcmArrayInt16.fromList(pcmData));
+        }
       });
 
       _socket!.listen((RawSocketEvent event) {
@@ -247,6 +282,15 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                   final decrypted = encrypter.decryptBytes(encrypt.Encrypted(Uint8List.fromList(opusPayload)), iv: iv);
                   
                   List<int> pcmData = _decoder!.decode(input: Uint8List.fromList(decrypted));
+                  
+                  _lastPacketTime = DateTime.now();
+                  if (_statusMessage == "Connection Lost. Waiting for stream...") {
+                      if (mounted) {
+                          setState(() {
+                              _statusMessage = "Listening & Decoding Audio...";
+                          });
+                      }
+                  }
                   
                   // Acoustic warning for low battery
                   if (_alarmEnabled && batteryPercent < 10 && !isCharging) {
@@ -322,6 +366,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     _socket = null;
     _decoder?.destroy();
     _decoder = null;
+    _noPacketAlarmTimer?.cancel();
     
     setState(() {
       _isListening = false;
@@ -334,6 +379,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   void dispose() {
     _connectivitySubscription?.cancel();
     _uiTimer?.cancel();
+    _noPacketAlarmTimer?.cancel();
     _stopListening();
     super.dispose();
   }

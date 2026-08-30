@@ -325,3 +325,27 @@ To compile the Android App:
    ~/.local/flutter/bin/flutter build apk --release --split-per-abi --dart-define-from-file=../../babyphone_key.env
    ```
    The built APKs will be located in `build/app/outputs/flutter-apk/`.
+
+---
+
+## 10. Troubleshooting & Network Configuration
+
+### Resolving Multicast Roaming Delays
+If you experience a 2–4 minute delay where the audio stream drops when the receiver phone moves between Wi-Fi access points, the issue is caused by your router's **IGMP Snooping** configuration. When the phone roams, the router takes too long to realize the phone has moved to a new AP and continues forwarding the multicast stream to the old AP.
+
+To resolve this, you have two options depending on your network needs:
+
+#### Option A: Disable IGMP Snooping (Recommended for Home Networks)
+The easiest and most reliable fix for a standard home network is to simply **disable IGMP Snooping** in your router's LAN/WLAN settings. 
+By disabling it, the router will flood the multicast packets to all ports on the local network (acting like broadcast). Since the babyphone stream is only ~24 kbps, this will have zero noticeable impact on network performance and instantly fixes the roaming delay.
+
+#### Option B: Optimize IGMP Snooping Settings
+If you want to keep IGMP Snooping enabled (e.g., you have heavy IPTV traffic on your network), you must aggressively tune your router's IGMP settings to quickly detect roaming:
+
+1. **Enable IGMP Fast Leave (or Immediate Leave):** Instantly drops the phone from the old AP's multicast group when it disconnects.
+2. **Configure Bridge IGMP Settings:** Set the following values in your router's interface:
+   - **Multicast Querier:** Check the box (enable it).
+   - **Query Interval:** Change from `125.00` to `20.00` (or your preferred value between 10.00 and 30.00 seconds).
+   - **Query Response Interval:** Lower from `10.00` to `2.00` (must always be smaller than the Query Interval; 2–5 seconds is ideal).
+   - **Querier Interval:** Set to around `45.00` (usually 2 × Query Interval + ½ Response Interval).
+   - **Membership Interval:** Set to around `45.00` (usually matches Querier Interval).
