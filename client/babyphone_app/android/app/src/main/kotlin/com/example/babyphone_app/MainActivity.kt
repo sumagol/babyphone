@@ -2,6 +2,7 @@ package com.example.babyphone_app
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import android.os.PowerManager
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -11,6 +12,7 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.babyphone/multicast"
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var powerWakeLock: PowerManager.WakeLock? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -37,9 +39,19 @@ class MainActivity: FlutterActivity() {
             
             wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "babyphoneWifiLock")
             wifiLock?.setReferenceCounted(true)
+            
+            val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+            powerWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "babyphoneApp::PowerWakeLock")
+            powerWakeLock?.setReferenceCounted(true)
         }
         
         multicastLock?.let {
+            if (!it.isHeld) {
+                it.acquire()
+            }
+        }
+        
+        powerWakeLock?.let {
             if (!it.isHeld) {
                 it.acquire()
             }
@@ -62,6 +74,11 @@ class MainActivity: FlutterActivity() {
             }
         }
         wifiLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+        powerWakeLock?.let {
             if (it.isHeld) {
                 it.release()
             }
