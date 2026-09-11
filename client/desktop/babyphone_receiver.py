@@ -115,6 +115,14 @@ def main():
             if has_extension and len(data) >= 20:
                 ext_len = (data[14] << 8) | data[15]
                 payload_offset = 12 + 4 + (ext_len * 4)
+                if data[12] == 0xBA and data[13] == 0xBB:
+                    telemetry = data[16]
+                    bat_pct = telemetry & 0x7F
+                    is_chg = (telemetry & 0x80) != 0
+                    temp_c = data[17]
+                    if packet_count % 250 == 0:
+                        chg_str = " (Charging)" if is_chg else ""
+                        print(f"[*] Telemetry: Battery {bat_pct}%{chg_str} | SoC Temp: {temp_c}°C")
             
             if len(data) <= payload_offset:
                 continue

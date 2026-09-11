@@ -5,6 +5,8 @@
 #include "sw_i2c.h"
 #include "mbedtls/aes.h"
 #include "ui.h"
+#include "driver/temperature_sensor.h"
+#include "esp_sleep.h"
 
 static const char *TAG = "audio_encoder";
 
@@ -43,8 +45,22 @@ static void audio_encoder_task(void *args)
     
     uint8_t real_battery = 100;
     bool real_charging = false;
+    uint8_t current_temp = 40;
     uint32_t frame_count = 0;
     
+    // Initialize ESP32-S3 internal temperature sensor
+    temperature_sensor_handle_t temp_sensor = NULL;
+    temperature_sensor_config_t temp_cfg = {
+        .range_min = 20,
+        .range_max = 100,
+    };
+    if (temperature_sensor_install(&temp_cfg, &temp_sensor) == ESP_OK) {
+        temperature_sensor_enable(temp_sensor);
+        ESP_LOGI(TAG, "Internal temperature sensor initialized");
+    } else {
+        ESP_LOGW(TAG, "Failed to install internal temperature sensor");
+    }
+
     // Initialize Software I2C on pins 47 (SDA) and 48 (SCL)
     sw_i2c_init(47, 48);
 
@@ -92,6 +108,28 @@ static void audio_encoder_task(void *args)
                 
                 // Update UI Battery Level
                 ui_set_battery_level(real_battery);
+
+                // Read SoC temperature
+                if (temp_sensor) {
+                    float tsens_out = 0;
+                    if (temperature_sensor_get_celsius(temp_sensor, &tsens_out) == ESP_OK) {
+                        if (tsens_out < 0) tsens_out = 0;
+                        if (tsens_out > 120) tsens_out = 120;
+                        current_temp = (uint8_t)(tsens_out + 0.5f);
+                        ui_set_temperature(current_temp);
+
+                        // --- EMERGENCY THERMAL SHUTDOWN (>= 80°C) ---
+                        if (current_temp >= 80) {
+                            ESP_LOGE(TAG, "CRITICAL OVERHEAT DETECTED: %d°C >= 80°C! Shutting down immediately...", current_temp);
+                            // 1. Attempt hardware power-off via PMIC (M5PM1 register 0x12 or AXP2101 register 0x10)
+                            sw_i2c_write_reg(0x6E, 0x12, 0x01);
+                            sw_i2c_write_reg(0x34, 0x10, 0x01);
+                            vTaskDelay(pdMS_TO_TICKS(100));
+                            // 2. If connected to USB power (can't power-off via PMIC), enter indefinite deep sleep
+                            esp_deep_sleep_start();
+                        }
+                    }
+                }
             }
 
             // --- Noise Gate ---
@@ -137,7 +175,7 @@ static void audio_encoder_task(void *args)
                 uint8_t telemetry = (real_battery & 0x7F) | (real_charging ? 0x80 : 0x00);
                 
                 enc_buffer[16] = telemetry;
-                enc_buffer[17] = 0x00;
+                enc_buffer[17] = current_temp; // Byte 1: ESP32-S3 SoC temperature in Celsius
                 enc_buffer[18] = 0x00;
                 enc_buffer[19] = 0x00;
 

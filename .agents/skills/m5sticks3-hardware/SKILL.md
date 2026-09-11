@@ -31,7 +31,7 @@ When writing or modifying hardware initialization code for the M5StickS3, strict
 ## 5. Flashing & Monitoring Protocol
 Due to the USB CDC download mode quirks on this board, follow this strict interactive protocol when flashing:
 1. **Bootloader Mode Request**: Before initiating the flash command, explicitly ask the user to manually set the device into bootloader mode (usually holding the button while plugging it in or pressing it).
-2. **Execute**: Once the user confirms the device is in bootloader mode, run the build/flash/monitor command, making sure to kill any process currently using the port and source the ESP-IDF export script: `fuser -k /dev/ttyACM0 ; . ~/esp/esp-idf/export.sh && idf.py -p /dev/ttyACM0 flash monitor`
+2. **Execute**: Once the user confirms the device is in bootloader mode, identify the correct port (check `ls /dev/serial/by-id/` if unsure, commonly `/dev/ttyACM1` when external monitor controls claim `ttyACM0`) and run the build/flash/monitor command: `PORT=$(ls /dev/serial/by-id/usb-Espressif* 2>/dev/null | head -n 1); PORT=${PORT:-/dev/ttyACM1}; fuser -k $PORT ; . ~/esp/esp-idf/export.sh && idf.py -p $PORT flash monitor`
 3. **Manual Reboot Request**: The device will typically hang at `boot:0x0 (DOWNLOAD(USB/UART0))` after flashing. As soon as the flash completes and the monitor attaches, explicitly ask the user to single-press the Reset button to reboot into the new firmware.
 4. **Monitor and Fix**: Keep an eye on the background task monitor output. If a crash (e.g., stack overflow, panic) or issue occurs, immediately fix the code and inform the user of the fix, then restart this protocol for the next flashing round.
 

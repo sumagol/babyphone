@@ -142,3 +142,27 @@ bool sw_i2c_read_reg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data_out) {
     i2c_stop();
     return true;
 }
+
+bool sw_i2c_write_reg(uint8_t dev_addr, uint8_t reg_addr, uint8_t data) {
+    if (_sda < 0 || _scl < 0) return false;
+    
+    i2c_start();
+    if (!i2c_write_byte(dev_addr << 1)) {
+        i2c_stop();
+        return false;
+    }
+    
+    if (!i2c_write_byte(reg_addr)) {
+        i2c_stop();
+        return false;
+    }
+
+    if (!i2c_write_byte(data)) {
+        i2c_stop();
+        return false;
+    }
+
+    i2c_stop();
+    return true;
+}
+

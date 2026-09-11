@@ -57,6 +57,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   
   int _batteryLevel = 100;
   bool _isCharging = false;
+  int _temperature = 0;
   double _currentRms = 0.0;
   List<FlSpot> _rmsHistory = [];
   double _timeOffset = 0;
@@ -242,6 +243,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
               int payloadOffset = 12;
               int batteryPercent = _batteryLevel;
               bool isCharging = _isCharging;
+              int tempCelsius = _temperature;
 
               // Check if Extension (X) bit is set
               bool hasExtension = (d.data[0] & 0x10) != 0;
@@ -257,7 +259,8 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                       int telemetry = d.data[16];
                       isCharging = (telemetry & 0x80) != 0; // Bit 7
                       batteryPercent = telemetry & 0x7F;    // Bits 0-6
-                      print("Parsed Telemetry -> Battery: $batteryPercent%, Charging: $isCharging");
+                      tempCelsius = d.data[17];              // Byte 1: SoC Temp in Celsius
+                      print("Parsed Telemetry -> Battery: $batteryPercent%, Charging: $isCharging, Temp: $tempCelsius°C");
                   } else {
                       print("Unknown Extension ID: ${d.data[12]} ${d.data[13]}");
                   }
@@ -315,6 +318,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                   
                   _batteryLevel = batteryPercent;
                   _isCharging = isCharging;
+                  _temperature = tempCelsius;
                   _currentRms = _calculateRms(pcmData);
                   
                   // Update History Chart
@@ -409,6 +413,30 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     );
   }
 
+  Widget _buildTemperatureBadge() {
+    if (_temperature <= 0) return const SizedBox.shrink();
+    Color color;
+    if (_temperature < 68) {
+      color = Colors.greenAccent; // Normal (< 68°C): Green
+    } else if (_temperature < 75) {
+      color = Colors.amberAccent; // Warning (68°C – 74.9°C): Yellow / Amber
+    } else {
+      color = Colors.redAccent;   // Critical (>= 75°C): Red
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.thermostat, color: color, size: 20),
+        const SizedBox(width: 2),
+        Text(
+          "$_temperature°C",
+          style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -435,6 +463,10 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(Icons.wifi, color: Colors.blueAccent, size: 20),
+                          if (_temperature > 0) ...[
+                            const SizedBox(width: 12),
+                            _buildTemperatureBadge(),
+                          ],
                           const SizedBox(width: 12),
                           _buildBatteryIcon(),
                         ],

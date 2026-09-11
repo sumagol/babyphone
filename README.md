@@ -155,7 +155,7 @@ Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio)
    * Computes peak/RMS level and sends metric to UI task.
    * Encodes raw PCM to Opus frame (40–80 bytes at 16–24 kbps, VBR).
    * Constructs 12-byte RTP Header (`Payload Type 96`, incrementing Sequence Number and Timestamp `+= 960`).
-   * Appends an 8-byte RTP Extension Header (Profile `0xBABB`) packing PMIC Battery Level and Charging State.
+   * Appends an 8-byte RTP Extension Header (Profile `0xBABB`) packing PMIC Battery Level, Charging State (Byte 0), and ESP32-S3 SoC Temperature in °C (Byte 1).
 4. **SRTP Network Task:**
    * Encrypts Opus payload with `AES-128-CTR` using a Pre-Shared Key loaded from `babyphone_key.env`.
    * Transmits via BSD UDP Socket to multicast group `239.255.0.1:5004`.
@@ -174,6 +174,19 @@ To prevent hardcoding secrets into Git, the project uses a single shared `.env` 
 * **Zero Flash Logging:** No runtime logging to SPIFFS/NVS/LittleFS during streaming.
 * **Log Level in Production:** `CONFIG_LOG_DEFAULT_LEVEL_NONE=y` or `CONFIG_LOG_DEFAULT_LEVEL_ERROR=y`.
 * **Watchdog Integration:** FreeRTOS Task Watchdog Timer (TWDT) attached to audio and network tasks. Auto-reset Wi-Fi stack or soft-reboot if tasks stall for > 3000 ms.
+
+### 5.4 Thermal Management & Safety Thresholds
+Because the M5StickS3 is fully enclosed and reaches ~52°C during normal operation while charging in a 22°C room, the firmware and clients implement active thermal telemetry and protection:
+
+| State | Temperature Range | Visual Indicator (App & LCD) | Firmware Action |
+| :--- | :--- | :--- | :--- |
+| **Normal** | `< 68.0°C` | **Green** (`#00FF00` / `greenAccent`) | Continuous streaming |
+| **Warning** | `68.0°C – 74.9°C` | **Yellow / Amber** (`#FFFF00` / `amberAccent`) | Continuous streaming |
+| **Critical** | `75.0°C – 79.9°C` | **Red** (`#FF0000` / `redAccent`) | High temperature alert |
+| **Emergency Shutdown** | `≥ 80.0°C` | *(Connection Lost on Client)* | Immediate PMIC power-off / indefinite deep sleep |
+
+* **Telemetry Broadcast:** The SoC temperature is sampled from the on-die sensor (`driver/temperature_sensor.h`) and broadcasted in Byte 1 of the RTP extension header (`0xBABB`).
+* **Emergency Auto-Shutdown (≥ 80°C):** If the internal SoC temperature reaches or exceeds 80°C, the firmware logs a critical overheat event, attempts an immediate PMIC hardware shutdown, and enters indefinite deep sleep. The Flutter client detects the stream interruption within 3 seconds and triggers its acoustic connection-loss alarm.
 
 ---
 

@@ -38,6 +38,7 @@ static lv_obj_t * label_uptime;
 static lv_obj_t * bar_vu;
 static lv_obj_t * label_db;
 static lv_obj_t * label_battery;
+static lv_obj_t * label_temp;
 static lv_obj_t * smart_sleep_overlay;
 
 static bool is_crying = false;
@@ -182,6 +183,11 @@ static void build_ui(void)
     lv_label_set_text(label_title, "BABYPHONE");
     lv_obj_set_style_text_color(label_title, lv_color_hex(0x00FFFF), LV_PART_MAIN); // Cyan title
     lv_obj_align(label_title, LV_ALIGN_TOP_MID, 0, 20);
+
+    label_temp = lv_label_create(tile1);
+    lv_label_set_text(label_temp, "--C");
+    lv_obj_set_style_text_color(label_temp, lv_color_hex(0x00FF00), LV_PART_MAIN);
+    lv_obj_align(label_temp, LV_ALIGN_TOP_LEFT, 5, 5);
 
     label_battery = lv_label_create(tile1);
     lv_label_set_text(label_battery, "100%");
@@ -415,6 +421,24 @@ void ui_set_battery_level(uint8_t percent)
             lv_obj_set_style_text_color(label_battery, lv_color_hex(0xFFFF00), LV_PART_MAIN); // Yellow
         } else {
             lv_obj_set_style_text_color(label_battery, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red
+        }
+        xSemaphoreGive(xGuiSemaphore);
+    }
+}
+
+void ui_set_temperature(uint8_t temp_celsius)
+{
+    if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (label_temp) {
+            lv_label_set_text_fmt(label_temp, "%dC", temp_celsius);
+            
+            if (temp_celsius < 68) {
+                lv_obj_set_style_text_color(label_temp, lv_color_hex(0x00FF00), LV_PART_MAIN); // Normal (< 68°C): Green
+            } else if (temp_celsius < 75) {
+                lv_obj_set_style_text_color(label_temp, lv_color_hex(0xFFFF00), LV_PART_MAIN); // Warning (68 - 74.9°C): Yellow
+            } else {
+                lv_obj_set_style_text_color(label_temp, lv_color_hex(0xFF0000), LV_PART_MAIN); // Critical (>= 75°C): Red
+            }
         }
         xSemaphoreGive(xGuiSemaphore);
     }

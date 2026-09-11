@@ -55,6 +55,12 @@ void ui_set_smart_sleep_state(bool crying);
  */
 void ui_set_battery_level(uint8_t percent);
 
+/**
+ * @brief Update the SoC temperature display
+ * @param temp_celsius SoC temperature in Celsius
+ */
+void ui_set_temperature(uint8_t temp_celsius);
+
 #ifdef __cplusplus
 }
 #endif
