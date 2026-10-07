@@ -5,6 +5,7 @@
 #include "sw_i2c.h"
 #include "mbedtls/aes.h"
 #include "ui.h"
+#include "audio_capture.h"
 #include "driver/temperature_sensor.h"
 #include "esp_sleep.h"
 
@@ -175,8 +176,17 @@ static void audio_encoder_task(void *args)
                 
                 enc_buffer[16] = telemetry;
                 enc_buffer[17] = current_temp; // Byte 1: ESP32-S3 SoC temperature in Celsius
-                enc_buffer[18] = 0x00;
-                enc_buffer[19] = 0x00;
+
+                uint8_t guard_tenths = 5;
+                noise_guard_mode_t g_mode = audio_capture_get_noise_guard();
+                switch (g_mode) {
+                    case NOISE_GUARD_5_0S:  guard_tenths = 50; break;
+                    case NOISE_GUARD_10_0S: guard_tenths = 100; break;
+                    case NOISE_GUARD_0_5S:
+                    default:                guard_tenths = 5; break;
+                }
+                enc_buffer[18] = guard_tenths; // Byte 2: Guard duration in tenths of a second (5=0.5s, 50=5.0s, 100=10.0s)
+                enc_buffer[19] = (uint8_t)g_mode; // Byte 3: Raw mode enum (0, 1, 2)
 
                 rtp_sequence++;
                 // RFC 7587: Opus RTP timestamp MUST increment at 48000 Hz regardless of sample rate!

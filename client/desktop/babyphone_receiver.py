@@ -120,9 +120,10 @@ def main():
                     bat_pct = telemetry & 0x7F
                     is_chg = (telemetry & 0x80) != 0
                     temp_c = data[17]
+                    guard_s = (data[18] / 10.0) if len(data) > 18 and data[18] > 0 else 0.5
                     if packet_count % 250 == 0:
                         chg_str = " (Charging)" if is_chg else ""
-                        print(f"[*] Telemetry: Battery {bat_pct}%{chg_str} | SoC Temp: {temp_c}°C")
+                        print(f"[*] Telemetry: Battery {bat_pct}%{chg_str} | SoC Temp: {temp_c}°C | Guard: {guard_s}s")
             
             if len(data) <= payload_offset:
                 continue

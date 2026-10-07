@@ -59,6 +59,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   bool _isCharging = false;
   int _temperature = 0;
   double _currentRms = 0.0;
+  double _guardSeconds = 0.5;
   List<FlSpot> _rmsHistory = [];
   double _timeOffset = 0;
   
@@ -263,6 +264,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
               int batteryPercent = _batteryLevel;
               bool isCharging = _isCharging;
               int tempCelsius = _temperature;
+              double guardSeconds = _guardSeconds;
 
               // Check if Extension (X) bit is set
               bool hasExtension = (d.data[0] & 0x10) != 0;
@@ -279,7 +281,10 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                       isCharging = (telemetry & 0x80) != 0; // Bit 7
                       batteryPercent = telemetry & 0x7F;    // Bits 0-6
                       tempCelsius = d.data[17];              // Byte 1: SoC Temp in Celsius
-                      print("Parsed Telemetry -> Battery: $batteryPercent%, Charging: $isCharging, Temp: $tempCelsius°C");
+                      if (d.data.length >= 19 && d.data[18] > 0) {
+                          guardSeconds = d.data[18] / 10.0;  // Byte 2: Guard tenths (5->0.5s, 50->5.0s, 100->10.0s)
+                      }
+                      print("Parsed Telemetry -> Battery: $batteryPercent%, Charging: $isCharging, Temp: $tempCelsius°C, Guard: ${guardSeconds}s");
                   } else {
                       print("Unknown Extension ID: ${d.data[12]} ${d.data[13]}");
                   }
@@ -338,6 +343,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                   _batteryLevel = batteryPercent;
                   _isCharging = isCharging;
                   _temperature = tempCelsius;
+                  _guardSeconds = guardSeconds;
                   _currentRms = _calculateRms(pcmData);
                   
                   // Update History Chart
@@ -458,6 +464,20 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     );
   }
 
+  Widget _buildNoiseGuardBadge() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.shield_outlined, color: Colors.cyanAccent, size: 18),
+        const SizedBox(width: 3),
+        Text(
+          "${_guardSeconds.toStringAsFixed(1)}s",
+          style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -484,6 +504,8 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(Icons.wifi, color: Colors.blueAccent, size: 20),
+                          const SizedBox(width: 12),
+                          _buildNoiseGuardBadge(),
                           if (_temperature > 0) ...[
                             const SizedBox(width: 12),
                             _buildTemperatureBadge(),
