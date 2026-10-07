@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="babyphone-esp32-icon.svg" width="140" height="140" alt="Babyphone ESP32-S3 Logo" />
+</p>
+
 # Architecture & Implementation Plan: Low-Latency ESP32-S3 Multicast Babyphone (SRTP/Opus)
 
 ## 1. Executive Summary & Core Concept
@@ -57,47 +61,56 @@ The M5StickS3 routes its peripherals to the following internal ESP32-S3 GPIOs:
 ### C. Display (ST7789 SPI) & Controls
 * **`TFT_MOSI`:** `GPIO 21` | **`TFT_CLK`:** `GPIO 36` | **`TFT_DC`:** `GPIO 37` | **`TFT_RST`:** `GPIO 38` | **`TFT_CS`:** `GPIO 39`
 * **`TFT_BL` (Backlight):** `GPIO 40` (PWM dimming support)
-* **`BTN_A` (Main Front Button):** `GPIO 35` (Wake display / Toggle status screen)
+* **`BTN_A` (Main Front/Top Blue Button):** `GPIO 11` (Wake display / Toggle diagnostic pages 0 ➔ 1 ➔ 2)
+* **`BTN_B` / `KEY2` (Right-Side Button):** `GPIO 12` (Cycle Noise Guard threshold: `0.5s` ➔ `5.0s` ➔ `10.0s`)
+* **Power Button (Left-Side):** PMIC power-on / long-press shutdown / hardware reset
 * **Native USB-CDC/JTAG:** `GPIO 19 (D-)` / `GPIO 20 (D+)` (Flashing & serial monitoring)
 
-### D. PMIC (AXP2101 / M5PM1) Hardware Quirk & Software I2C
+### D. PMIC (AXP2101 / M5PM1) Telemetry via Software I2C
 The M5StickS3 uses an advanced PMIC located at I2C address `0x6E` (or `0x34` for some variants). 
-**CRITICAL HARDWARE BUG:** Reading registers from this specific PMIC using the standard ESP32 Hardware I2C driver (`i2c_master_transmit_receive`) will instantly cause a CPU lockup and throw an `Interrupt wdt timeout on CPU0` kernel panic.
-* **Current Workaround:** We only use blind, "fire-and-forget" writes (`i2c_master_transmit`) to the PMIC to enable the LCD power rail. Real-time battery telemetry over the network currently sends dummy values.
-* **Future Requirement:** To read the true `getBatteryLevel()` (Register `0xA4`) and `isCharging()` statuses without crashing the babyphone, a custom **Software I2C (bit-banging)** driver must be implemented in pure C to manually toggle the SDA/SCL pins and bypass the silicon bug.
+Reading registers from this PMIC using the ESP32 hardware I2C driver caused CPU lockups and watchdog timeouts.
+* **Implemented Solution:** A dedicated **Software I2C (bit-banging)** driver (`sw_i2c.c` / `sw_i2c.h`) safely polls battery voltage, charge state, and battery percentage without triggering hardware arbitration lockups.
+* **Emergency Shutdown:** If SoC temperature reaches ≥ 80°C, the PMIC is commanded via Software I2C to immediately cut power.
 
 ---
 
 ## 4. Display UI & UX Specification (1.14″ ST7789 LCD)
 
 ### 4.1 Screen Layout
-The display operates in landscape orientation ($240 	imes 135	ext{ px}$) or vertical orientation, divided into 4 clear diagnostic zones:
+The display operates in portrait orientation ($135 \times 240\text{ px}$), divided into 3 clear diagnostic pages cycled via `BTN_A` (GPIO 11):
 
 ```text
-Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio)
+Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio & VU)
 ┌────────────────┐       ┌────────────────┐     ┌────────────────┐
-│ BATTERY: 85%   │       │   TARGET IP    │     │   AUDIO (VU)   │
-│                │       │                │     │                │
-│                │       │                │     │                │
-│  [● REC] LIVE  │   →   │  239.255.0.1   │  →  │  [██████░░░░]  │
-│                │       │   Port 5004    │     │                │
-│                │       │                │     │     -18 dB     │
-│ WiFi: -58 dBm  │       │ LOCAL IP: ...  │     │                │
-│ UPTIME: 02h:14m│       │                │     │  OPUS 24kbps   │
+│ 42°C      100% │       │   TARGET IP    │     │   AUDIO (VU)   │
+│   BABYPHONE    │       │                │     │                │
+│                │       │  239.255.0.1   │     │  [██████░░░░]  │
+│  [● REC] LIVE  │   →   │   Port 5004    │  →  │     -18 dB     │
+│ WiFi: -58 dBm  │       │                │     │                │
+│  GUARD: 0.5s   │       │ LOCAL:         │     │  GUARD: 0.5s   │
+│UPTIME: 02:14:30│       │ 192.168.1.120  │     │  OPUS 24kbps   │
 └────────────────┘       └────────────────┘     └────────────────┘
 ```
 
-### 4.2 UI Elements & Color Coding
-* **Battery & Power Telemetry:** PMIC hardware is polled (AXP192 / AXP2101 / M5PM1) and actual battery percentage is displayed on the main UI. This data is also pushed via RTP extension headers to the mobile app.
-* **Stream & Security Indicator:** Green dot `[● REC]` when audio is actively captured and streamed.
-* **Dynamic Audio VU-Meter:**
+### 4.2 UI Elements, Telemetry & Controls
+* **Battery & SoC Temperature:** Displayed in the top bar of Page 0. Real battery percentage polled via Software I2C; on-die temperature sensor monitored continuously.
+* **Noise Guard (Configurable Filter Duration):**
+  * Cycled with the **right-side button (`KEY2` / GPIO 12)** and displayed in Cyan on **Page 0** and **Page 2**:
+    * `0.5s` (25 frames × 20ms): Fast response for infants / immediate crying detection.
+    * `5.0s` (250 frames × 20ms): Filters brief rustling or sleep movement, unmuting only on sustained cries.
+    * `10.0s` (500 frames × 20ms): Heavy filter for toddlers who briefly turn over or sleep-babble.
+  * **Comfort Silence Keepalive:** When the gate is closed (baby quiet or noise duration not yet reached), the encoder emits silent Opus frames. This ensures the mobile app receives continuous packets and does not trigger its 3-second connection-loss alarm.
+  * **2.5s Hangover Hold Time:** Once triggered, the stream stays unmuted for 2.5 seconds (125 frames) after noise drops, preserving quiet whimpers and pauses between cries.
+  * **NVS Persistence:** The selected guard setting is automatically saved to Non-Volatile Storage (`settings:guard_mode`) and restored on boot.
+* **Stream & Security Indicator:** Cyan `[● REC] LIVE` when audio is actively captured and streamed.
+* **Dynamic Audio VU-Meter (Page 2):**
   * `< -30 dB` (Green): Normal nursery background noise / silence.
   * `-30 dB to -15 dB` (Yellow): Baby stirring, breathing sounds, light rustling.
   * `> -15 dB` (Red): Crying / loud disturbance.
 * **Smart Sleep Mode v2 (Nursery Night-Mode):**
   * **60-Second Timeout:** The display backlight auto-dims to **0% (Pitch Black)** after 60 seconds of inactivity to keep the nursery completely dark.
-  * **Noise Wake (Debounced):** If the baby cries continuously for **3 seconds** (150 frames > noise gate threshold), a faint dark red `[ REC ]` overlay illuminates the screen to confirm transmission. If the noise stops, it goes back to pitch black.
-  * **Manual Wake:** Pressing the front button (`BTN_A`) instantly drops the sleep overlay and restores the rich 3-page UI for another 60 seconds.
+  * **Noise Wake (Debounced):** If the baby cries continuously for **3 seconds**, a faint dark red `[ REC ]` overlay illuminates the screen to confirm transmission. If the noise stops, it goes back to pitch black.
+  * **Manual Wake:** Pressing either `BTN_A` or `BTN_B` instantly wakes the display and restores normal brightness.
 * **Refresh Rate:** Low UI refresh rate (**5–10 Hz**) to prevent SPI bus starvation and keep Core 1 free for Opus DSP.
 
 ---
@@ -154,7 +167,11 @@ Page 0 (Main Status)     Page 1 (Network)       Page 2 (Audio)
    * Computes peak/RMS level and sends metric to UI task.
    * Encodes raw PCM to Opus frame (40–80 bytes at 16–24 kbps, VBR).
    * Constructs 12-byte RTP Header (`Payload Type 96`, incrementing Sequence Number and Timestamp `+= 960`).
-   * Appends an 8-byte RTP Extension Header (Profile `0xBABB`) packing PMIC Battery Level, Charging State (Byte 0), and ESP32-S3 SoC Temperature in °C (Byte 1).
+   * Appends an 8-byte RTP Extension Header (Profile `0xBABB`, length 1 word) packing live telemetry:
+     * **Byte 0 (offset 16):** Battery percentage (bits 0–6) and Charging status (bit 7).
+     * **Byte 1 (offset 17):** ESP32-S3 internal SoC temperature in °C.
+     * **Byte 2 (offset 18):** Active Noise Guard filter duration in tenths of a second (`5 = 0.5s`, `50 = 5.0s`, `100 = 10.0s`).
+     * **Byte 3 (offset 19):** Active Noise Guard mode enum (`0 = 0.5s`, `1 = 5.0s`, `2 = 10.0s`).
 4. **SRTP Network Task:**
    * Encrypts Opus payload with `AES-128-CTR` using a Pre-Shared Key loaded from `babyphone_key.env`.
    * Transmits via BSD UDP Socket to multicast group `239.255.0.1:5004`.
@@ -274,6 +291,16 @@ gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
   - [x] Implement `MulticastLock` and Wakelock for background listening.
   - [x] Build Dart pipeline (AES-CTR decrypt -> Opus decode -> PCM playback).
   - [x] Add Midnight Glassmorphism UI, audio level VU-meter, history chart, and low battery acoustic alerts.
+- [x] **Milestone 5: Production Hardening, Telemetry & Noise Guard**
+  - [x] Implement custom Software I2C (`sw_i2c`) driver to safely read PMIC battery telemetry without kernel panics.
+  - [x] Real-time internal SoC temperature telemetry broadcast in RTP extension header with 4-tier visual safety states.
+  - [x] Hardware emergency power-off / deep sleep protection at ≥ 80.0°C.
+  - [x] Multi-mode Noise Guard duration cycling (`0.5s`, `5.0s`, `10.0s`) via side button `KEY2` (GPIO 12).
+  - [x] Comfort silence generation ensuring zero packet gaps during quiet periods to keep client watchdog alive.
+  - [x] NVS persistent storage for user-selected Noise Guard duration across power cycles.
+  - [x] RTP extension header expansion streaming live Noise Guard duration to client apps (`🛡️ 0.5s` / `5.0s` / `10.0s`).
+  - [x] Android `BabyphoneForegroundService` with `WIFI_MODE_FULL_LOW_LATENCY` lock for uninterrupted screen-off streaming.
+  - [x] Modern Android adaptive launcher icons with custom dark tech iconography.
 
 ---
 
