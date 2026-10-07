@@ -140,9 +140,8 @@ static void audio_encoder_task(void *args)
             }
             uint32_t mean_sq = sum_sq / FRAME_SAMPLES;
             
-            // If the volume is below the "barrier" threshold, mute the frame to kill white noise
-            // Threshold of 10000 (RMS ~100) is a good starting point for high-gain mic noise
-            if (mean_sq < 10000) {
+            // Secondary floor noise barrier (RMS < 50) when gate is open
+            if (mean_sq < 2500) {
                 memset(pcm_frame, 0, FRAME_SAMPLES * sizeof(int16_t));
             }
 

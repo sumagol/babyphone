@@ -7,8 +7,10 @@
 #include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "lvgl.h"
+#include "audio_capture.h"
 
-#define BTN_PIN 11
+#define BTN_A_PIN 11 // Top/front blue button (KEY1)
+#define BTN_B_PIN 12 // Right side button (KEY2)
 #define TIMEOUT_MS 60000
 
 static const char *TAG = "ui";
@@ -40,6 +42,8 @@ static lv_obj_t * label_db;
 static lv_obj_t * label_battery;
 static lv_obj_t * label_temp;
 static lv_obj_t * smart_sleep_overlay;
+static lv_obj_t * label_guard_p0;
+static lv_obj_t * label_guard_p2;
 
 static bool is_crying = false;
 
@@ -80,12 +84,12 @@ static void increase_lvgl_tick(void *arg)
     lv_tick_inc(5);
 }
 
-static void handle_button_press(void)
+static void handle_button_a_press(void)
 {
     last_activity_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
     if (is_screen_off) {
-        ESP_LOGI(TAG, "Waking up screen");
+        ESP_LOGI(TAG, "Waking up screen (Btn A)");
         is_screen_off = false;
         if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
             update_sleep_ui();
@@ -100,6 +104,28 @@ static void handle_button_press(void)
     }
 }
 
+static void handle_button_b_press(void)
+{
+    last_activity_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    if (is_screen_off) {
+        ESP_LOGI(TAG, "Waking up screen (Btn B)");
+        is_screen_off = false;
+        if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+            update_sleep_ui();
+            xSemaphoreGive(xGuiSemaphore);
+        }
+    }
+
+    noise_guard_mode_t cur = audio_capture_get_noise_guard();
+    noise_guard_mode_t next_mode = (cur + 1) % NOISE_GUARD_MAX;
+    audio_capture_set_noise_guard(next_mode);
+    ui_set_noise_guard_display(audio_capture_get_noise_guard_str(next_mode));
+    ESP_LOGI(TAG, "Noise guard cycled: %s -> %s", 
+             audio_capture_get_noise_guard_str(cur), 
+             audio_capture_get_noise_guard_str(next_mode));
+}
+
 #include "esp_wifi.h"
 
 static void gui_task(void *arg)
@@ -109,14 +135,15 @@ static void gui_task(void *arg)
     gpio_config_t btn_conf = {
         .intr_type = GPIO_INTR_DISABLE,
         .mode = GPIO_MODE_INPUT,
-        .pin_bit_mask = (1ULL << BTN_PIN),
+        .pin_bit_mask = (1ULL << BTN_A_PIN) | (1ULL << BTN_B_PIN),
         .pull_down_en = 0,
         .pull_up_en = 1
     };
     gpio_config(&btn_conf);
 
     last_activity_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    int last_btn_state = 1;
+    int last_btn_a_state = 1;
+    int last_btn_b_state = 1;
     int tick_count = 0;
 
     while (1) {
@@ -133,14 +160,23 @@ static void gui_task(void *arg)
             }
         }
 
-        int btn_state = gpio_get_level(BTN_PIN);
-        if (btn_state == 0 && last_btn_state == 1) {
+        int btn_a_state = gpio_get_level(BTN_A_PIN);
+        if (btn_a_state == 0 && last_btn_a_state == 1) {
             vTaskDelay(pdMS_TO_TICKS(50)); 
-            if (gpio_get_level(BTN_PIN) == 0) {
-                handle_button_press();
+            if (gpio_get_level(BTN_A_PIN) == 0) {
+                handle_button_a_press();
             }
         }
-        last_btn_state = btn_state;
+        last_btn_a_state = btn_a_state;
+
+        int btn_b_state = gpio_get_level(BTN_B_PIN);
+        if (btn_b_state == 0 && last_btn_b_state == 1) {
+            vTaskDelay(pdMS_TO_TICKS(50)); 
+            if (gpio_get_level(BTN_B_PIN) == 0) {
+                handle_button_b_press();
+            }
+        }
+        last_btn_b_state = btn_b_state;
 
         // Poll RSSI every 2 seconds (200 * 10ms)
         if (tick_count >= 200) {
@@ -205,7 +241,12 @@ static void build_ui(void)
     label_rssi = lv_label_create(tile1);
     lv_label_set_text(label_rssi, "WiFi: -- dBm");
     lv_obj_set_style_text_color(label_rssi, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
-    lv_obj_align(label_rssi, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_align(label_rssi, LV_ALIGN_CENTER, 0, 5);
+
+    label_guard_p0 = lv_label_create(tile1);
+    lv_label_set_text(label_guard_p0, "GUARD: 0.5s");
+    lv_obj_set_style_text_color(label_guard_p0, lv_color_hex(0x00FFFF), LV_PART_MAIN);
+    lv_obj_align(label_guard_p0, LV_ALIGN_CENTER, 0, 25);
 
     label_uptime = lv_label_create(tile1);
     lv_label_set_text(label_uptime, "UPTIME: 00h:00m:00s");
@@ -255,7 +296,12 @@ static void build_ui(void)
     label_db = lv_label_create(tile3);
     lv_label_set_text(label_db, "-60 dB");
     lv_obj_set_style_text_color(label_db, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_align(label_db, LV_ALIGN_CENTER, 0, 20);
+    lv_obj_align(label_db, LV_ALIGN_CENTER, 0, 15);
+
+    label_guard_p2 = lv_label_create(tile3);
+    lv_label_set_text(label_guard_p2, "GUARD: 0.5s");
+    lv_obj_set_style_text_color(label_guard_p2, lv_color_hex(0x00FFFF), LV_PART_MAIN);
+    lv_obj_align(label_guard_p2, LV_ALIGN_CENTER, 0, 38);
 
     lv_obj_t * label_codec = lv_label_create(tile3);
     lv_label_set_text(label_codec, "OPUS 24kbps");
@@ -315,6 +361,9 @@ esp_err_t ui_init(void)
 
     if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
         build_ui();
+        const char *guard_str = audio_capture_get_noise_guard_str(audio_capture_get_noise_guard());
+        if (label_guard_p0) lv_label_set_text_fmt(label_guard_p0, "GUARD: %s", guard_str);
+        if (label_guard_p2) lv_label_set_text_fmt(label_guard_p2, "GUARD: %s", guard_str);
         xSemaphoreGive(xGuiSemaphore);
     }
 
@@ -439,6 +488,19 @@ void ui_set_temperature(uint8_t temp_celsius)
             } else {
                 lv_obj_set_style_text_color(label_temp, lv_color_hex(0xFF0000), LV_PART_MAIN); // Critical (>= 75°C): Red
             }
+        }
+        xSemaphoreGive(xGuiSemaphore);
+    }
+}
+
+void ui_set_noise_guard_display(const char* mode_str)
+{
+    if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (label_guard_p0) {
+            lv_label_set_text_fmt(label_guard_p0, "GUARD: %s", mode_str);
+        }
+        if (label_guard_p2) {
+            lv_label_set_text_fmt(label_guard_p2, "GUARD: %s", mode_str);
         }
         xSemaphoreGive(xGuiSemaphore);
     }

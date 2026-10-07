@@ -10,15 +10,22 @@
 #include "network_tx.h"
 #include "wifi_manager.h"
 #include "freertos/event_groups.h"
+#include "nvs_flash.h"
 
 static const char *TAG = "babyphone_main";
-
-
-
 
 void app_main(void)
 {
     ESP_LOGI(TAG, "Babyphone Sender Firmware Starting...");
+
+    // Initialize NVS first so settings (noise guard mode, Wi-Fi) can be loaded
+    esp_err_t nvs_ret = nvs_flash_init();
+    if (nvs_ret == ESP_ERR_NVS_NO_FREE_PAGES || nvs_ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(nvs_ret);
+
     // Initialize Hardware FIRST to turn off the backlight and save power
     // Otherwise, transmitting Wi-Fi with the backlight on causes a hardware brownout!
     ESP_ERROR_CHECK(hw_codec_init());

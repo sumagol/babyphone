@@ -61,6 +61,12 @@ void ui_set_battery_level(uint8_t percent);
  */
 void ui_set_temperature(uint8_t temp_celsius);
 
+/**
+ * @brief Update the noise guard mode display text (e.g. "0.5s", "5.0s", "10.0s")
+ * @param mode_str String representation of active mode
+ */
+void ui_set_noise_guard_display(const char* mode_str);
+
 #ifdef __cplusplus
 }
 #endif

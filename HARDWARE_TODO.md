@@ -22,4 +22,5 @@ When your M5Stack M5StickS3 arrives, use this list to pick up right where we lef
 - [x] **Captive Portal Wi-Fi Manager:** Implemented SoftAP fallback, DNS hijacking, and HTTP server for provisioning `ssid` and `pass` into NVS. Solved Header field too long issues. Added "Show Password" button and robust retry/WPA3 support.
 - [x] **Stream Encryption (AES-CTR):** Implemented lightweight AES-128 encryption on the Opus payload only, using SSRC/Sequence/Timestamp as IV, to prevent local eavesdropping. Hardcoded key for now.
 - [x] **Audio Processing:** Implemented software noise gate with RMS sensitivity tuning to silence electrical hiss while allowing baby murmurs to pass.
+- [x] **Noise Guard Duration Control:** Implemented multi-mode noise guard (0.5s fast, 5.0s, 10.0s sustained noise) toggled via right-side button (KEY2 / GPIO 12), persisted to NVS, and displayed on screen.
 - [x] **Battery Management:** Implemented low-battery acoustic alerting (beeps when <= 10%) with a toggle in the Flutter app to disable.
