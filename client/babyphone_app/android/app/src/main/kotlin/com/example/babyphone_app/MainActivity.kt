@@ -1,8 +1,9 @@
 package com.example.babyphone_app
 
-import android.content.Context
-import android.net.wifi.WifiManager
-import android.os.PowerManager
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -10,78 +11,54 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.babyphone/multicast"
-    private var multicastLock: WifiManager.MulticastLock? = null
-    private var wifiLock: WifiManager.WifiLock? = null
-    private var powerWakeLock: PowerManager.WakeLock? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "acquireMulticastLock") {
-                val success = acquireMulticastLock()
-                if (success) {
+            when (call.method) {
+                "startForegroundService", "acquireMulticastLock" -> {
+                    startStreamingService()
                     result.success(null)
-                } else {
-                    result.error("UNAVAILABLE", "Failed to acquire multicast lock.", null)
                 }
-            } else {
-                result.notImplemented()
+                "stopForegroundService", "releaseMulticastLock" -> {
+                    stopStreamingService()
+                    result.success(null)
+                }
+                else -> {
+                    result.notImplemented()
+                }
+            }
+        }
+
+        // Request POST_NOTIFICATIONS permission on Android 13+ (API 33+) if not yet granted
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
             }
         }
     }
 
-    private fun acquireMulticastLock(): Boolean {
-        if (multicastLock == null) {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            multicastLock = wifiManager.createMulticastLock("babyphoneMulticastLock")
-            multicastLock?.setReferenceCounted(true)
-            
-            wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "babyphoneWifiLock")
-            wifiLock?.setReferenceCounted(true)
-            
-            val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
-            powerWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "babyphoneApp::PowerWakeLock")
-            powerWakeLock?.setReferenceCounted(true)
+    private fun startStreamingService() {
+        val serviceIntent = Intent(this, BabyphoneForegroundService::class.java).apply {
+            action = BabyphoneForegroundService.ACTION_START
         }
-        
-        multicastLock?.let {
-            if (!it.isHeld) {
-                it.acquire()
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
         }
-        
-        powerWakeLock?.let {
-            if (!it.isHeld) {
-                it.acquire()
-            }
+    }
+
+    private fun stopStreamingService() {
+        val serviceIntent = Intent(this, BabyphoneForegroundService::class.java).apply {
+            action = BabyphoneForegroundService.ACTION_STOP
         }
-        
-        wifiLock?.let {
-            if (!it.isHeld) {
-                it.acquire()
-            }
-            return true
-        }
-        return false
+        startService(serviceIntent)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        multicastLock?.let {
-            if (it.isHeld) {
-                it.release()
-            }
-        }
-        wifiLock?.let {
-            if (it.isHeld) {
-                it.release()
-            }
-        }
-        powerWakeLock?.let {
-            if (it.isHeld) {
-                it.release()
-            }
-        }
+        stopStreamingService()
     }
 }

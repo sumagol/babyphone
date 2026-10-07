@@ -130,13 +130,31 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     });
   }
 
+  Future<void> _startForegroundService() async {
+    const platform = MethodChannel('com.babyphone/multicast');
+    try {
+      await platform.invokeMethod('startForegroundService');
+    } catch (e) {
+      print("Foreground service start error: $e");
+    }
+  }
+
+  Future<void> _stopForegroundService() async {
+    const platform = MethodChannel('com.babyphone/multicast');
+    try {
+      await platform.invokeMethod('stopForegroundService');
+    } catch (e) {
+      print("Foreground service stop error: $e");
+    }
+  }
+
   Future<void> _acquireMulticastLock() async {
     const platform = MethodChannel('com.babyphone/multicast');
     try {
       await platform.invokeMethod('acquireMulticastLock');
       setState(() {
         if (_isWifiConnected) {
-          _statusMessage = "Multicast Lock Acquired.";
+          _statusMessage = "Background Service Ready.";
         }
       });
     } on PlatformException catch (e) {
@@ -179,6 +197,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     });
 
     try {
+      await _startForegroundService();
       WakelockPlus.enable();
       await FlutterPcmSound.setup(sampleRate: 48000, channelCount: 1);
       _decoder = SimpleOpusDecoder(sampleRate: 48000, channels: 1);
@@ -355,6 +374,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
       });
       
     } catch (e) {
+      _stopForegroundService();
       WakelockPlus.disable();
       setState(() {
         _statusMessage = "Start Error: $e";
@@ -363,6 +383,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
   }
 
   void _stopListening() {
+    _stopForegroundService();
     WakelockPlus.disable();
     _resetAutoStopTimer();
     _igmpRefreshTimer?.cancel();
