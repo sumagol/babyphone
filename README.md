@@ -24,8 +24,7 @@ Why Multicast Babyphone?
 
 ---
 
-## 2. Hardware Specification: M5Stack M5StickS3
-
+## 2. Hardware Specification: [M5Stack M5StickS3](https://www.bastelgarage.ch/m5sticks3-esp32s3-mini-iot-entwicklungs-kit)
 | Parameter | Specification | Project Role / Significance |
 | :--- | :--- | :--- |
 | **SoC** | ESP32-S3-PICO-1-N8R8 | Dual-Core Xtensa LX7 @ 240 MHz with Vector Instructions |
