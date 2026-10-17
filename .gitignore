@@ -67,5 +67,6 @@ managed_components/
 /.vscode/settings.json
 /firmware/sdkconfig.old
 /babyphone_key.env
+/client/desktop_sender/target/
 __pycache__/
 *.pyc

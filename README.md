@@ -24,6 +24,7 @@ Why Multicast Babyphone?
 * **Captive Portal Wi-Fi Setup:** Robust onboarding for new networks via a lightweight SoftAP setup (see [captive_portal_plan.md](captive_portal_plan.md) for architecture).
 * **Target Latency:** **< 80 ms** end-to-end on local Wi-Fi.
 * **Multi-Client Architecture:** Any number of clients (Desktop VLC, custom Flutter Android/iOS app, or secondary ESP32 hardware receiver like M5Stack ATOM Echo) can join or leave via IGMP without sender overhead.
+* **Software Sender Alternative:** A Rust desktop sender ([`client/desktop_sender/`](client/desktop_sender/)) turns any Linux or Windows computer into a babyphone with the same wire protocol, Noise Guard and encryption as the M5StickS3.
 * **Integrated Glanceable UI:** 1.14″ LCD provides instant network status, battery level, live audio VU-meter, and nursery night-mode auto-dimming.
 
 ---
@@ -185,6 +186,7 @@ To prevent hardcoding secrets into Git, the project uses a single shared `.env` 
 - **Firmware:** CMake reads this file during `idf.py build` and injects it into `audio_encoder.c`.
 - **Flutter:** Pass it during compilation using: `flutter build apk --dart-define-from-file=../../babyphone_key.env`
 - **Python:** The script reads the file dynamically at runtime.
+- **Rust desktop sender:** Reads the file at runtime from the current directory, next to the executable, or the repository root (`--key-file` overrides).
 
 ### 5.2 Logging, Flash Wear & Reliability Constraints
 * **Zero Flash Logging:** No runtime logging to SPIFFS/NVS/LittleFS during streaming.
@@ -301,6 +303,12 @@ gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
   - [x] RTP extension header expansion streaming live Noise Guard duration to client apps (`🛡️ 0.5s` / `5.0s` / `10.0s`).
   - [x] Android `BabyphoneForegroundService` with `WIFI_MODE_FULL_LOW_LATENCY` lock for uninterrupted screen-off streaming.
   - [x] Modern Android adaptive launcher icons with custom dark tech iconography.
+- [ ] **Milestone 6: Software Senders**
+  - [x] Rust desktop sender for Linux (cpal/ALSA capture, 80 Hz high-pass, Noise Guard, Opus, AES-128-CTR, multicast).
+  - [x] Automatic resampling for mics without a 48 kHz mode.
+  - [x] Windows build (cross-compiled single `.exe`, WASAPI capture, laptop battery telemetry).
+  - [ ] Validate the Windows build on real hardware.
+  - [ ] Android transmitter mode in the Flutter app (see [mobile_sender_plan.md](mobile_sender_plan.md)).
 
 ---
 
@@ -365,6 +373,51 @@ To compile the Android App:
    ```
    The built APKs will be located in `build/app/outputs/flutter-apk/`.
 
+### 9.3 Desktop Sender Setup (Rust, Linux & Windows)
+Turns a computer with a microphone into the babyphone sender. Details in [`client/desktop_sender/README.md`](client/desktop_sender/README.md).
+
+1. **Install build dependencies (Debian/Ubuntu):**
+   ```bash
+   sudo apt install build-essential pkg-config cmake libasound2-dev libopus-dev
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+2. **Build and test for Linux:**
+   ```bash
+   cd client/desktop_sender
+   cargo test
+   cargo build --release
+   ```
+
+3. **Run:**
+   ```bash
+   # List microphones and network interfaces
+   ./target/release/babyphone_sender --list
+
+   # Stream on Wi-Fi, 5 s Noise Guard, threshold tuned to the mic's quiet-room RMS
+   ./target/release/babyphone_sender --iface wlan0 --guard 5 --threshold 200
+
+   # Unencrypted for VLC (client/vlc/stream.sdp)
+   ./target/release/babyphone_sender --unencrypted
+   ```
+   The terminal shows a live VU meter with the RMS against the threshold. Press Enter to cycle the Noise Guard (`0.5s` ➔ `5.0s` ➔ `10.0s`), Ctrl+C to stop.
+
+4. **Cross-compile the Windows `.exe` from Linux:**
+   ```bash
+   sudo apt install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+   rustup target add x86_64-pc-windows-gnu
+   cargo build --release --target x86_64-pc-windows-gnu
+   ```
+   Copy `target/x86_64-pc-windows-gnu/release/babyphone_sender.exe` and `babyphone_key.env` into the same folder on the Windows machine. It needs no extra DLLs. Pass `--iface` the adapter's IP address.
+
+### 9.4 Desktop Receiver (Python)
+Decrypts the stream and plays it through GStreamer (see [`client/desktop/README.md`](client/desktop/README.md)):
+```bash
+sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-base
+pip3 install cryptography
+./client/desktop/babyphone_receiver.py --iface wlan0
+```
+
 ---
 
 ## 10. Troubleshooting & Network Configuration
@@ -388,6 +441,13 @@ If you want to keep IGMP Snooping enabled (e.g., you have heavy IPTV traffic on 
    - **Query Response Interval:** Lower from `10.00` to `2.00` (must always be smaller than the Query Interval; 2–5 seconds is ideal).
    - **Querier Interval:** Set to around `45.00` (usually 2 × Query Interval + ½ Response Interval).
    - **Membership Interval:** Set to around `45.00` (usually matches Querier Interval).
+
+### Receiving on a Linux Machine With a Restrictive Firewall
+If the `INPUT` chain defaults to `DROP`, multicast packets (including the sender's own looped-back stream on the same machine) are dropped before reaching the Python receiver. Allow the group:
+```bash
+sudo iptables -I INPUT -d 239.255.0.1/32 -p udp --dport 5004 -j ACCEPT
+```
+Add the rule to `/etc/iptables/rules.v4` to keep it across reboots.
 
 ### Background Streaming & Screen-Off Mode (Android)
 To prevent Android's Doze mode and Wi-Fi power saving from cutting the UDP stream when the screen is locked:
