@@ -24,7 +24,7 @@ Why Multicast Babyphone?
 * **Captive Portal Wi-Fi Setup:** Robust onboarding for new networks via a lightweight SoftAP setup (see [captive_portal_plan.md](captive_portal_plan.md) for architecture).
 * **Target Latency:** **< 80 ms** end-to-end on local Wi-Fi.
 * **Multi-Client Architecture:** Any number of clients (Desktop VLC, custom Flutter Android/iOS app, or secondary ESP32 hardware receiver like M5Stack ATOM Echo) can join or leave via IGMP without sender overhead.
-* **Software Sender Alternative:** A Rust desktop sender ([`client/desktop_sender/`](client/desktop_sender/)) turns any Linux or Windows computer into a babyphone with the same wire protocol, Noise Guard and encryption as the M5StickS3.
+* **Software Sender Alternatives:** A Rust desktop sender ([`client/desktop_sender/`](client/desktop_sender/)) turns any Linux or Windows computer into a babyphone, and the Flutter app's **Baby Mode** does the same with a spare Android phone. Both use the same wire protocol, Noise Guard and encryption as the M5StickS3.
 * **Integrated Glanceable UI:** 1.14″ LCD provides instant network status, battery level, live audio VU-meter, and nursery night-mode auto-dimming.
 
 ---
@@ -274,6 +274,29 @@ gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
    });
    ```
 
+### 7.2 Baby Mode: Phone as Sender
+The app has two modes, switched with the toggle in the top-left corner (locked while a mode is running):
+* **Parent Mode (👂):** The receiver described above.
+* **Baby Mode (👶):** Turns a spare Android phone into the babyphone transmitter.
+
+Baby Mode pipeline:
+1. **Native capture (Kotlin, `MicCapture.kt`):** `AudioRecord` at 48 kHz / 16-bit mono, delivering exact 20 ms frames to Dart over the `com.babyphone/mic` EventChannel. Uses the `VOICE_RECOGNITION` source, which disables AGC and noise suppression so quiet whimpers are not swallowed.
+2. **Dart DSP (`lib/sender/`):** 80 Hz high-pass, the firmware's Noise Guard (0.5 s / 5 s / 10 s trigger, 2.5 s hangover, silent keepalive frames), Opus at 24 kbps VoIP.
+3. **Packetizing:** 12-byte RTP header + 8-byte `0xBABB` extension carrying the phone's real battery level, charging state and battery temperature. AES-128-CTR with the same IV layout as the firmware and a random SSRC per session.
+4. **Transmission:** UDP multicast to `239.255.0.1:5004`, TTL 1.
+
+Android background handling:
+* `BabyphoneForegroundService` switches to `foregroundServiceType="microphone"` in Baby Mode (required on Android 11+ to record with the screen off), plus Wi-Fi and wake locks.
+* On first start the app asks for the microphone permission and for an exemption from battery optimization (Doze).
+
+Using it:
+1. Put the phone near the crib, plugged into a charger, on the same Wi-Fi as the receivers.
+2. Switch to Baby Mode and tap **TRANSMIT**.
+3. Watch the level bar in a quiet room and move the **Sensitivity threshold** slider just above it (the amber marker shows the threshold). Pick a Noise Guard duration.
+4. The screen can be turned off. Keep the app open in the background; swiping it away stops transmitting.
+
+Baby Mode is Android only for now.
+
 ---
 
 ## 8. Implementation Roadmap & Milestones
@@ -308,7 +331,9 @@ gst-launch-1.0 -v udpsrc multicast-group=239.255.0.1 port=5004 \
   - [x] Automatic resampling for mics without a 48 kHz mode.
   - [x] Windows build (cross-compiled single `.exe`, WASAPI capture, laptop battery telemetry).
   - [ ] Validate the Windows build on real hardware.
-  - [ ] Android transmitter mode in the Flutter app (see [mobile_sender_plan.md](mobile_sender_plan.md)).
+  - [x] Android Baby Mode (transmitter) in the Flutter app (see [mobile_sender_plan.md](mobile_sender_plan.md)).
+  - [ ] Validate Baby Mode on real phones (screen-off streaming, Doze, OEM battery savers).
+  - [ ] Persist Baby Mode threshold and Noise Guard setting across launches.
 
 ---
 
@@ -371,7 +396,17 @@ To compile the Android App:
    cd client/babyphone_app
    ~/.local/flutter/bin/flutter build apk --release --split-per-abi --dart-define-from-file=../../babyphone_key.env
    ```
-   The built APKs will be located in `build/app/outputs/flutter-apk/`.
+   The built APKs will be located in `build/app/outputs/flutter-apk/`. The same APK contains both Parent Mode and Baby Mode; most current phones need `app-arm64-v8a-release.apk`.
+
+4. **Run the sender unit tests** (Noise Guard, packet layout, AES-CTR test vector from the Python receiver):
+   ```bash
+   ~/.local/flutter/bin/flutter test test/sender_test.dart
+   ```
+
+5. **Install on a USB-connected phone (optional):**
+   ```bash
+   ~/Android/Sdk/platform-tools/adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+   ```
 
 ### 9.3 Desktop Sender Setup (Rust, Linux & Windows)
 Turns a computer with a microphone into the babyphone sender. Details in [`client/desktop_sender/README.md`](client/desktop_sender/README.md).

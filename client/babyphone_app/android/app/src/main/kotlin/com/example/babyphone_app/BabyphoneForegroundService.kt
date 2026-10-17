@@ -20,6 +20,9 @@ class BabyphoneForegroundService : Service() {
         private const val TAG = "BabyphoneService"
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val EXTRA_MODE = "mode"
+        const val MODE_RECEIVER = "receiver"
+        const val MODE_SENDER = "sender"
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "babyphone_streaming_channel"
         private const val CHANNEL_NAME = "Babyphone Audio Stream"
@@ -28,6 +31,7 @@ class BabyphoneForegroundService : Service() {
             private set
     }
 
+    private var mode: String? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -48,15 +52,18 @@ class BabyphoneForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        startStreamingService()
+        startStreamingService(intent?.getStringExtra(EXTRA_MODE) ?: MODE_RECEIVER)
         return START_STICKY
     }
 
-    private fun startStreamingService() {
-        if (isRunning) {
-            Log.d(TAG, "Service already running")
+    private fun startStreamingService(newMode: String) {
+        if (isRunning && mode == newMode) {
+            Log.d(TAG, "Service already running in $newMode mode")
             return
         }
+        // Calling startForeground again on a running service switches its type and notification.
+        mode = newMode
+        val sender = newMode == MODE_SENDER
 
         createNotificationChannel()
 
@@ -78,18 +85,18 @@ class BabyphoneForegroundService : Service() {
         }
 
         val notification = notificationBuilder
-            .setContentTitle("Babyphone Receiver")
-            .setContentText("Audio stream active in background")
+            .setContentTitle(if (sender) "Babyphone Transmitter" else "Babyphone Receiver")
+            .setContentText(if (sender) "Microphone is streaming to the local network" else "Audio stream active in background")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // Android 14+ (API 34)
+        if (sender && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) { // Android 11+ restricts background mic
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { // Android 10+ (API 29)
             startForeground(
@@ -188,6 +195,7 @@ class BabyphoneForegroundService : Service() {
             stopForeground(true)
         }
         isRunning = false
+        mode = null
         stopSelf()
         Log.d(TAG, "BabyphoneForegroundService stopped")
     }

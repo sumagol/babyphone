@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pcm_sound/flutter_pcm_sound.dart';
@@ -12,6 +11,9 @@ import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+
+import 'glass_container.dart';
+import 'sender_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,18 +34,71 @@ class BabyphoneApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Babyphone Receiver',
+      title: 'Babyphone',
       theme: ThemeData(
         brightness: Brightness.dark,
         primarySwatch: Colors.cyan,
       ),
-      home: const UdpDiagnosticScreen(),
+      home: const ModeShell(),
+    );
+  }
+}
+
+enum AppMode { parent, baby }
+
+/// Switches between Parent Mode (receiver) and Baby Mode (transmitter).
+/// Switching is locked while either mode is active so the monitor can't be stopped by a stray tap.
+class ModeShell extends StatefulWidget {
+  const ModeShell({super.key});
+
+  @override
+  State<ModeShell> createState() => _ModeShellState();
+}
+
+class _ModeShellState extends State<ModeShell> {
+  AppMode _mode = AppMode.parent;
+  bool _active = false;
+
+  void _setActive(bool active) {
+    if (mounted && active != _active) setState(() => _active = active);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        _mode == AppMode.parent
+            ? UdpDiagnosticScreen(onActiveChanged: _setActive)
+            : SenderScreen(onActiveChanged: _setActive),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 20, left: 20),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                type: MaterialType.transparency,
+                child: SegmentedButton<AppMode>(
+                  segments: const [
+                    ButtonSegment(value: AppMode.parent, icon: Icon(Icons.hearing), tooltip: 'Parent Mode (listen)'),
+                    ButtonSegment(value: AppMode.baby, icon: Icon(Icons.child_care), tooltip: 'Baby Mode (transmit)'),
+                  ],
+                  selected: {_mode},
+                  showSelectedIcon: false,
+                  onSelectionChanged: _active ? null : (s) => setState(() => _mode = s.first),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 class UdpDiagnosticScreen extends StatefulWidget {
-  const UdpDiagnosticScreen({super.key});
+  final ValueChanged<bool>? onActiveChanged;
+
+  const UdpDiagnosticScreen({super.key, this.onActiveChanged});
 
   @override
   State<UdpDiagnosticScreen> createState() => _UdpDiagnosticScreenState();
@@ -217,6 +272,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
         _statusMessage = "Listening & Decoding Audio...";
         _lastPacketTime = DateTime.now();
       });
+      widget.onActiveChanged?.call(true);
 
       _noPacketAlarmTimer?.cancel();
       _noPacketAlarmTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
@@ -404,6 +460,7 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
       _statusMessage = "Stopped.";
       _currentRms = 0.0;
     });
+    widget.onActiveChanged?.call(false);
   }
 
   @override
@@ -412,6 +469,8 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
     _uiTimer?.cancel();
     _noPacketAlarmTimer?.cancel();
     _stopListening();
+    // _stopListening re-arms the idle auto-exit; it must not fire while Baby Mode is transmitting.
+    _autoStopTimer?.cancel();
     super.dispose();
   }
 
@@ -647,38 +706,6 @@ class _UdpDiagnosticScreenState extends State<UdpDiagnosticScreen> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// Glassmorphism Reusable Widget
-class GlassContainer extends StatelessWidget {
-  final Widget child;
-  final double? width;
-  final double? height;
-
-  const GlassContainer({Key? key, required this.child, this.width, this.height}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
-        child: Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.1),
-              width: 1.5,
-            ),
-          ),
-          child: child,
         ),
       ),
     );
